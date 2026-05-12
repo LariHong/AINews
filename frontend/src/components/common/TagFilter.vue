@@ -1,14 +1,20 @@
 <script setup lang="ts">
-const tags = ['model', 'product', 'research', 'safety', 'agent']
+const tags = [
+  { value: 'model', label: 'Model' },
+  { value: 'product', label: 'Product' },
+  { value: 'research', label: 'Research' },
+  { value: 'safety', label: 'Safety' },
+  { value: 'agent', label: 'Agent' },
+]
 
 const model = defineModel<string>({ default: '' })
 </script>
 
 <template>
-  <div class="tag-filter" aria-label="Article tag filter">
+  <div class="tag-list" aria-label="Article tag filter">
     <button
-      class="tag-filter__option"
-      :class="{ 'tag-filter__option--active': model === '' }"
+      class="tag-pill"
+      :class="{ active: model === '' }"
       type="button"
       @click="model = ''"
     >
@@ -16,13 +22,13 @@ const model = defineModel<string>({ default: '' })
     </button>
     <button
       v-for="tag in tags"
-      :key="tag"
-      class="tag-filter__option"
-      :class="{ 'tag-filter__option--active': model === tag }"
+      :key="tag.value"
+      class="tag-pill"
+      :class="{ active: model === tag.value }"
       type="button"
-      @click="model = tag"
+      @click="model = tag.value"
     >
-      {{ tag }}
+      {{ tag.label }}
     </button>
   </div>
 </template>

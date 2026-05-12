@@ -7,23 +7,31 @@ defineProps<{
   isLoading: boolean
   errorMessage: string
   hasMore: boolean
+  selectedArticleId?: string
 }>()
 
 const emit = defineEmits<{
   (event: 'load-more'): void
+  (event: 'select', article: Article): void
 }>()
 </script>
 
 <template>
-  <section class="article-feed">
-    <div v-if="errorMessage" class="article-feed__error">{{ errorMessage }}</div>
-    <div v-else-if="isLoading && articles.length === 0" class="article-feed__state">Loading articles...</div>
-    <div v-else-if="articles.length === 0" class="article-feed__state">No articles match these filters.</div>
+  <section class="article-feed" aria-label="Latest AI articles">
+    <div v-if="errorMessage" class="feed-state feed-state--error">{{ errorMessage }}</div>
+    <div v-else-if="isLoading && articles.length === 0" class="feed-state">Loading articles...</div>
+    <div v-else-if="articles.length === 0" class="feed-state">No articles match these filters.</div>
     <template v-else>
-      <ArticleCard v-for="article in articles" :key="article.id" :article="article" />
+      <ArticleCard
+        v-for="article in articles"
+        :key="article.id"
+        :article="article"
+        :selected="article.id === selectedArticleId"
+        @select="emit('select', article)"
+      />
       <button
         v-if="hasMore"
-        class="article-feed__more"
+        class="article-feed-more"
         type="button"
         :disabled="isLoading"
         @click="emit('load-more')"
