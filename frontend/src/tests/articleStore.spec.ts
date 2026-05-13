@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import { useAiSummaryStore } from '@/stores/aiSummaryStore'
 import { useArticleStore } from '@/stores/articleStore'
-import { fetchTodayStats } from '@/services/apiClient'
+import { fetchArticles, fetchTodayStats, runTodayFeedCrawl } from '@/services/apiClient'
 
 vi.mock('@/services/apiClient', () => ({
   fetchArticles: vi.fn(async () => ({
@@ -12,6 +12,10 @@ vi.mock('@/services/apiClient', () => ({
         id: 'art_01',
         title: 'AI release',
         summary: 'A short summary',
+        content: 'A short summary',
+        contentText: 'A short summary',
+        contentStatus: 'summary_fallback',
+        contentExtractedAt: null,
         sourceUrl: 'https://example.com',
         sourceName: 'Example',
         sourceLogoUrl: null,
@@ -32,6 +36,10 @@ vi.mock('@/services/apiClient', () => ({
     id: 'art_01',
     title: 'AI release',
     summary: 'A short summary',
+    content: 'A short summary',
+    contentText: 'A short summary',
+    contentStatus: 'summary_fallback',
+    contentExtractedAt: null,
     sourceUrl: 'https://example.com',
     sourceName: 'Example',
     sourceLogoUrl: null,
@@ -53,6 +61,15 @@ vi.mock('@/services/apiClient', () => ({
       sourceFailures: 0,
       message: '1 sources synced',
     },
+  })),
+  runTodayFeedCrawl: vi.fn(async () => ({
+    scope: 'today',
+    status: 'completed',
+    sourcesVisited: 1,
+    articlesPersisted: 1,
+    sourceFailures: 0,
+    logs: ['Crawled Example: 1 RSS items read.'],
+    completedAt: '2026-05-13T06:01:00Z',
   })),
 }))
 
@@ -111,6 +128,52 @@ describe('articleStore', () => {
     expect(store.articles).toHaveLength(1)
     expect(store.dashboardStats).toBeNull()
     expect(store.statsErrorMessage).toBe('Stats down')
+  })
+
+  it('runs explicit feed sync only after a cold empty article list', async () => {
+    vi.mocked(fetchArticles)
+      .mockResolvedValueOnce({
+        items: [],
+        pagination: {
+          cursor: null,
+          hasMore: false,
+          totalCount: 0,
+        },
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: 'art_synced',
+            title: 'Synced AI story',
+            summary: 'Fetched from RSS',
+            content: null,
+            contentText: null,
+            contentStatus: 'summary_fallback',
+            contentExtractedAt: null,
+            sourceUrl: 'https://example.com/rss',
+            sourceName: 'Example',
+            sourceLogoUrl: null,
+            tags: ['rss'],
+            publishedAt: '2026-05-13T06:00:00Z',
+            hasAiSummary: false,
+            isBookmarked: false,
+            readTimeMinutes: null,
+          },
+        ],
+        pagination: {
+          cursor: null,
+          hasMore: false,
+          totalCount: 1,
+        },
+      })
+    setActivePinia(createPinia())
+    const store = useArticleStore()
+
+    await store.ensureTodayFeed()
+
+    expect(runTodayFeedCrawl).toHaveBeenCalledTimes(1)
+    expect(store.articles).toHaveLength(1)
+    expect(store.feedSyncViewState).toBe('ready')
   })
 
   it('loads an AI summary preview into state', async () => {

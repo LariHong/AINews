@@ -1,5 +1,6 @@
 using AiDaily.Application.AiSummaries;
 using AiDaily.Application.Articles;
+using AiDaily.Application.FeedCrawler;
 using AiDaily.Application.Stats;
 using AiDaily.Domain.Entities;
 using AiDaily.Infrastructure.AI;
@@ -15,6 +16,8 @@ var service = new ArticleQueryService(repository);
 await ShouldFilterByKeyword();
 await ShouldFilterByTagAndPaginate();
 await ShouldGetTodayDashboardStats();
+await ShouldKeepArticleListQueriesReadOnly();
+await ShouldRunExplicitFeedSync();
 await ShouldGetArticleById();
 await ShouldReturnNullForMissingArticle();
 await ShouldSanitizeExtractedArticleContent();
@@ -52,6 +55,7 @@ async Task ShouldGetTodayDashboardStats()
 {
     var statsService = new DashboardStatsQueryService(
         repository,
+        new FeedCrawlRunState(),
         new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
 
     var stats = await statsService.GetTodayAsync();
@@ -61,6 +65,33 @@ async Task ShouldGetTodayDashboardStats()
     Assert(stats.TagBreakdown.Any(item => item.Name == "model" && item.Count == 2), "today stats should include tag breakdown");
     Assert(stats.TopSources.Count == 2, "today stats should include top sources");
     Assert(stats.SyncStatus.SourcesSynced == 2, "today stats should include source sync count");
+}
+
+async Task ShouldKeepArticleListQueriesReadOnly()
+{
+    var crawler = new CountingFeedCrawler();
+    var queryService = new ArticleQueryService(repository);
+
+    _ = await queryService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null));
+
+    Assert(crawler.Calls == 0, "article list queries should not trigger RSS crawler writes");
+}
+
+async Task ShouldRunExplicitFeedSync()
+{
+    var crawler = new CountingFeedCrawler();
+    var state = new FeedCrawlRunState();
+    var syncService = new FeedCrawlRunService(
+        crawler,
+        new StaticFeedSourceCatalog(),
+        state,
+        new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
+
+    var result = await syncService.RunAsync(new FeedCrawlRunRequest("today"));
+
+    Assert(crawler.Calls == 1, "explicit feed sync endpoint service should invoke the crawler");
+    Assert(result.Status == "completed", "explicit feed sync should complete");
+    Assert(state.Current.SourcesSynced == 1, "explicit feed sync should update source sync status");
 }
 
 async Task ShouldGetArticleById()
@@ -320,4 +351,31 @@ internal sealed class CountingSummaryRepository : IAiSummaryRepository
             GeneratedAt = DateTimeOffset.Parse("2026-05-12T08:00:00Z")
         });
     }
+}
+
+internal sealed class CountingFeedCrawler : IFeedCrawler
+{
+    public int Calls { get; private set; }
+
+    public Task<FeedCrawlResult> CrawlAsync(
+        IEnumerable<FeedSource> sources,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new FeedCrawlResult(1, 1, ["Crawled Example: 1 RSS items read."]));
+    }
+}
+
+internal sealed class StaticFeedSourceCatalog : IFeedSourceCatalog
+{
+    public IReadOnlyList<FeedSource> GetEnabledSources() =>
+    [
+        new FeedSource
+        {
+            Id = "example",
+            Name = "Example",
+            FeedUrl = "https://example.com/rss.xml",
+            SiteUrl = "https://example.com"
+        }
+    ];
 }

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 
-import { fetchArticle, fetchArticles, fetchTodayStats } from '@/services/apiClient'
-import type { Article, ArticleListParams, DashboardStats } from '@/types/article'
+import { fetchArticle, fetchArticles, fetchTodayStats, runTodayFeedCrawl } from '@/services/apiClient'
+import type { Article, ArticleListParams, DashboardStats, FeedSyncViewState } from '@/types/article'
 
 export const useArticleStore = defineStore('articleStore', {
   state: () => ({
@@ -13,8 +13,12 @@ export const useArticleStore = defineStore('articleStore', {
     dashboardStats: null as DashboardStats | null,
     isDetailLoading: false,
     isStatsLoading: false,
+    isFeedSyncing: false,
     detailErrorCode: '',
     statsErrorMessage: '',
+    feedSyncMessage: '',
+    feedSyncErrorMessage: '',
+    feedSyncViewState: 'idle' as FeedSyncViewState,
     isLoading: false,
     errorMessage: '',
     filters: {
@@ -44,6 +48,7 @@ export const useArticleStore = defineStore('articleStore', {
         this.cursor = result.pagination.cursor
         this.hasMore = result.pagination.hasMore
         this.totalCount = result.pagination.totalCount
+        this.updateFeedSyncViewState()
       } catch (error) {
         this.errorMessage = error instanceof Error ? error.message : 'Unable to load articles'
       } finally {
@@ -53,6 +58,38 @@ export const useArticleStore = defineStore('articleStore', {
     async applyFilters(): Promise<void> {
       this.cursor = null
       await this.loadArticles(true)
+    },
+    async syncTodayFeed(): Promise<void> {
+      this.isFeedSyncing = true
+      this.feedSyncErrorMessage = ''
+      this.feedSyncMessage = this.articles.length === 0
+        ? "Fetching today's AI news..."
+        : "Updating today's feed in the background..."
+      this.feedSyncViewState = this.articles.length === 0 ? 'empty_fresh_start' : 'stale_with_data'
+
+      try {
+        const result = await runTodayFeedCrawl()
+        this.feedSyncMessage = result.sourceFailures > 0
+          ? `${result.sourcesVisited - result.sourceFailures} sources synced; ${result.sourceFailures} source failed`
+          : `${result.sourcesVisited} sources synced`
+        await this.loadArticles(true)
+        await this.loadTodayStats()
+      } catch (error) {
+        this.feedSyncErrorMessage = error instanceof Error ? error.message : 'Unable to sync feed'
+        this.feedSyncViewState = 'sync_failed'
+      } finally {
+        this.isFeedSyncing = false
+        this.updateFeedSyncViewState()
+      }
+    },
+    async ensureTodayFeed(): Promise<void> {
+      await this.loadArticles(true)
+
+      if (this.articles.length === 0 && !this.errorMessage) {
+        await this.syncTodayFeed()
+      } else {
+        await this.loadTodayStats()
+      }
     },
     async loadTodayStats(): Promise<void> {
       this.isStatsLoading = true
@@ -83,6 +120,19 @@ export const useArticleStore = defineStore('articleStore', {
       } finally {
         this.isDetailLoading = false
       }
+    },
+    updateFeedSyncViewState(): void {
+      if (this.isFeedSyncing) {
+        this.feedSyncViewState = this.articles.length === 0 ? 'empty_fresh_start' : 'stale_with_data'
+        return
+      }
+
+      if (this.feedSyncErrorMessage) {
+        this.feedSyncViewState = 'sync_failed'
+        return
+      }
+
+      this.feedSyncViewState = this.articles.length > 0 ? 'ready' : 'idle'
     },
   },
 })
