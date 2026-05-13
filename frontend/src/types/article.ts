@@ -53,6 +53,18 @@ export interface DashboardStats {
   }
 }
 
+export type FeedSyncViewState = 'idle' | 'empty_fresh_start' | 'stale_with_data' | 'ready' | 'sync_failed'
+
+export interface FeedCrawlRunResult {
+  scope: 'today'
+  status: 'completed' | 'already_running' | 'failed'
+  sourcesVisited: number
+  articlesPersisted: number
+  sourceFailures: number
+  logs: string[]
+  completedAt: string
+}
+
 export interface ApiResponse<T> {
   success: boolean
   data: T

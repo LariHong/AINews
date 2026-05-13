@@ -98,6 +98,14 @@ const statsUpdatedLabel = computed(() => {
 })
 
 const syncStatusLabel = computed(() => {
+  if (articleStore.isFeedSyncing || articleStore.feedSyncMessage) {
+    return articleStore.feedSyncMessage
+  }
+
+  if (articleStore.feedSyncErrorMessage) {
+    return articleStore.feedSyncErrorMessage
+  }
+
   const status = articleStore.dashboardStats?.syncStatus
   if (!status) {
     return articleStore.statsErrorMessage ? 'Using article list fallback' : 'Source status pending'
@@ -112,6 +120,21 @@ const syncStatusLabel = computed(() => {
   }
 
   return status.message
+})
+
+const feedStateLabel = computed(() => {
+  switch (articleStore.feedSyncViewState) {
+    case 'empty_fresh_start':
+      return "Fetching today's AI news..."
+    case 'stale_with_data':
+      return "Updating today's feed in the background..."
+    case 'sync_failed':
+      return 'Feed sync failed'
+    case 'ready':
+      return 'Feed ready'
+    default:
+      return 'Feed waiting'
+  }
 })
 
 const todayLabel = new Intl.DateTimeFormat('en', {
@@ -138,8 +161,7 @@ watch(
 )
 
 onMounted(() => {
-  void articleStore.loadArticles(true)
-  void articleStore.loadTodayStats()
+  void articleStore.ensureTodayFeed()
 })
 </script>
 
@@ -178,6 +200,14 @@ onMounted(() => {
       <input v-model="articleStore.filters.source" class="source-select" type="search" placeholder="Source" />
       <input v-model="articleStore.filters.date" class="source-select source-select--date" type="date" />
       <button class="nav-btn nav-btn--accent" type="submit">Apply</button>
+      <button
+        class="nav-btn"
+        type="button"
+        :disabled="articleStore.isFeedSyncing"
+        @click="articleStore.syncTodayFeed"
+      >
+        {{ articleStore.isFeedSyncing ? 'Syncing' : 'Refresh' }}
+      </button>
     </form>
 
     <main class="main-grid">
@@ -203,14 +233,43 @@ onMounted(() => {
 
         <div class="dashboard-status">
           <span>{{ statsUpdatedLabel }}</span>
+          <span>{{ feedStateLabel }}</span>
           <span>{{ syncStatusLabel }}</span>
+        </div>
+
+        <div
+          v-if="articleStore.feedSyncViewState === 'stale_with_data' || articleStore.feedSyncViewState === 'sync_failed'"
+          class="sync-banner"
+          :class="{ 'sync-banner--error': articleStore.feedSyncViewState === 'sync_failed' }"
+        >
+          <span>{{ articleStore.feedSyncViewState === 'sync_failed' ? articleStore.feedSyncErrorMessage : articleStore.feedSyncMessage }}</span>
+          <button
+            v-if="articleStore.feedSyncViewState === 'sync_failed'"
+            class="btn-sm"
+            type="button"
+            @click="articleStore.syncTodayFeed"
+          >
+            Retry
+          </button>
+        </div>
+
+        <div v-if="articleStore.feedSyncViewState === 'empty_fresh_start'" class="cold-start-panel">
+          <div class="cold-start-copy">
+            <strong>Fetching today's AI news...</strong>
+            <span>Sources are syncing now. Fresh articles will appear here when the run finishes.</span>
+          </div>
+          <div class="skeleton-list" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
         </div>
 
         <div class="section-heading">Latest Signal</div>
 
         <ArticleFeed
           :articles="articleStore.articles"
-          :is-loading="articleStore.isLoading"
+          :is-loading="articleStore.isLoading || articleStore.isFeedSyncing"
           :error-message="articleStore.errorMessage"
           :has-more="articleStore.hasMore"
           :selected-article-id="selectedArticle?.id"

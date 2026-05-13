@@ -1,4 +1,5 @@
 using AiDaily.Application.Articles;
+using AiDaily.Application.FeedCrawler;
 using AiDaily.Domain.Entities;
 
 namespace AiDaily.Application.Stats;
@@ -6,11 +7,16 @@ namespace AiDaily.Application.Stats;
 public sealed class DashboardStatsQueryService
 {
     private readonly IArticleRepository _articles;
+    private readonly IFeedCrawlStatusReader _feedCrawlStatus;
     private readonly TimeProvider _timeProvider;
 
-    public DashboardStatsQueryService(IArticleRepository articles, TimeProvider timeProvider)
+    public DashboardStatsQueryService(
+        IArticleRepository articles,
+        IFeedCrawlStatusReader feedCrawlStatus,
+        TimeProvider timeProvider)
     {
         _articles = articles;
+        _feedCrawlStatus = feedCrawlStatus;
         _timeProvider = timeProvider;
     }
 
@@ -29,7 +35,7 @@ public sealed class DashboardStatsQueryService
             BuildBreakdown(todayArticles.SelectMany(article => article.Tags)),
             BuildBreakdown(todayArticles.Select(article => article.SourceName)),
             todayArticles.Count == 0 ? null : todayArticles.Max(article => article.PublishedAt),
-            BuildSyncStatus(todayArticles));
+            BuildSyncStatus(todayArticles, _feedCrawlStatus.Current));
     }
 
     private static IReadOnlyList<StatsBreakdownItemDto> BuildBreakdown(IEnumerable<string> values) =>
@@ -42,8 +48,19 @@ public sealed class DashboardStatsQueryService
             .Select(group => new StatsBreakdownItemDto(group.Key, group.Count()))
             .ToList();
 
-    private static DashboardSyncStatusDto BuildSyncStatus(IReadOnlyList<Article> articles)
+    private static DashboardSyncStatusDto BuildSyncStatus(
+        IReadOnlyList<Article> articles,
+        FeedCrawlStatusSnapshot crawlStatus)
     {
+        if (crawlStatus.IsSyncing || crawlStatus.LastCompletedAt is not null || crawlStatus.SourceFailures > 0)
+        {
+            return new DashboardSyncStatusDto(
+                crawlStatus.IsSyncing,
+                crawlStatus.SourcesSynced,
+                crawlStatus.SourceFailures,
+                crawlStatus.Message);
+        }
+
         var sourceCount = articles
             .Select(article => article.SourceId ?? article.SourceName)
             .Where(source => !string.IsNullOrWhiteSpace(source))

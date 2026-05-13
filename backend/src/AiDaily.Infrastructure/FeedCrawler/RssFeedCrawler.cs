@@ -2,12 +2,13 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Xml.Linq;
 using AiDaily.Application.Articles;
+using AiDaily.Application.FeedCrawler;
 using AiDaily.Domain.Entities;
 using AiDaily.Infrastructure.ContentExtraction;
 
 namespace AiDaily.Infrastructure.FeedCrawler;
 
-public sealed class RssFeedCrawler
+public sealed class RssFeedCrawler : IFeedCrawler
 {
     private readonly HttpClient _httpClient;
     private readonly IArticleRepository _articles;

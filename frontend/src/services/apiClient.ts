@@ -5,6 +5,7 @@ import type {
   ArticleListParams,
   ArticleListResponse,
   DashboardStats,
+  FeedCrawlRunResult,
 } from '@/types/article'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
@@ -53,6 +54,19 @@ export async function fetchTodayStats(): Promise<DashboardStats> {
   }
 
   const payload = (await response.json()) as ApiResponse<DashboardStats>
+  return payload.data
+}
+
+export async function runTodayFeedCrawl(): Promise<FeedCrawlRunResult> {
+  const response = await fetch(`${API_BASE_URL}/feed-crawl/run?scope=today`, {
+    method: 'POST',
+  })
+
+  if (!response.ok) {
+    throw await createApiError(response, `Feed sync API failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as ApiResponse<FeedCrawlRunResult>
   return payload.data
 }
 
