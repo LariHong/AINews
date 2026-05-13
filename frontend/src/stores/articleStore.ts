@@ -74,7 +74,8 @@ export const useArticleStore = defineStore('articleStore', {
 
       try {
         const cachedArticle = this.articles.find((article) => article.id === id)
-        this.selectedArticle = cachedArticle ?? (await fetchArticle(id))
+        if (cachedArticle) this.selectedArticle = cachedArticle
+        this.selectedArticle = await fetchArticle(id)
       } catch (error) {
         this.selectedArticle = null
         this.detailErrorCode = error instanceof Error ? error.name : 'API_ERROR'

@@ -4,6 +4,7 @@ using AiDaily.Application.Stats;
 using AiDaily.Domain.Entities;
 using AiDaily.Infrastructure.AI;
 using AiDaily.Infrastructure.Cache;
+using AiDaily.Infrastructure.ContentExtraction;
 using AiDaily.Infrastructure.FeedCrawler;
 using AiDaily.Infrastructure.Repositories;
 using System.Net;
@@ -16,6 +17,8 @@ await ShouldFilterByTagAndPaginate();
 await ShouldGetTodayDashboardStats();
 await ShouldGetArticleById();
 await ShouldReturnNullForMissingArticle();
+await ShouldSanitizeExtractedArticleContent();
+await ShouldFallbackWhenContentExtractionFails();
 await ShouldCrawlRssIntoArticles();
 await ShouldGetAiSummaryPreview();
 await ShouldReturnSummaryNotFound();
@@ -66,6 +69,8 @@ async Task ShouldGetArticleById()
 
     Assert(article is not null, "detail query should return an article");
     Assert(article!.SourceUrl == "https://openai.com/news/", "detail query should return the requested article");
+    Assert(article.ContentStatus == "full_content_ready", "detail query should include content enrichment status");
+    Assert(article.ContentText?.Contains("safer tool use") == true, "detail query should include readable content text");
 }
 
 async Task ShouldReturnNullForMissingArticle()
@@ -73,6 +78,41 @@ async Task ShouldReturnNullForMissingArticle()
     var article = await service.GetArticleAsync("missing");
 
     Assert(article is null, "detail query should return null for missing article");
+}
+
+async Task ShouldSanitizeExtractedArticleContent()
+{
+    const string html = """
+        <html>
+          <head><style>.hidden{display:none}</style><script>alert('xss')</script></head>
+          <body>
+            <nav>Home Pricing</nav>
+            <article>
+              <h1>Readable AI article</h1>
+              <p>Models improved &amp; teams can inspect the clean source text.</p>
+            </article>
+          </body>
+        </html>
+        """;
+
+    using var httpClient = new HttpClient(new StaticRssHandler(html));
+    var extractor = new HtmlArticleContentExtractor(httpClient);
+    var result = await extractor.ExtractAsync("https://example.com/story", "Fallback summary", CancellationToken.None);
+
+    Assert(result.Status == "full_content_ready", "extractor should mark readable HTML as full content");
+    Assert(result.ContentText?.Contains("Readable AI article") == true, "extractor should preserve readable text");
+    Assert(result.ContentText?.Contains("alert") == false, "extractor should remove script content");
+    Assert(result.ContentText?.Contains("Home Pricing") == false, "extractor should remove navigation content");
+}
+
+async Task ShouldFallbackWhenContentExtractionFails()
+{
+    using var httpClient = new HttpClient(new ThrowingHandler());
+    var extractor = new HtmlArticleContentExtractor(httpClient);
+    var result = await extractor.ExtractAsync("https://example.com/fails", "Fallback summary", CancellationToken.None);
+
+    Assert(result.Status == "extraction_failed", "extractor should mark failed fetches without throwing");
+    Assert(result.ContentText == "Fallback summary", "extractor should preserve summary fallback on failure");
 }
 
 async Task ShouldCrawlRssIntoArticles()
@@ -241,6 +281,12 @@ internal sealed class StaticRssHandler : HttpMessageHandler
         {
             Content = new StringContent(_rss)
         });
+}
+
+internal sealed class ThrowingHandler : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        throw new HttpRequestException("network unavailable");
 }
 
 internal sealed class FixedTimeProvider : TimeProvider

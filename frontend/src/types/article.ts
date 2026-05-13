@@ -2,6 +2,10 @@ export interface Article {
   id: string
   title: string
   summary: string | null
+  content: string | null
+  contentText: string | null
+  contentStatus: 'full_content_ready' | 'extracting_source' | 'summary_fallback' | 'extraction_failed'
+  contentExtractedAt: string | null
   sourceUrl: string
   sourceName: string
   sourceLogoUrl: string | null

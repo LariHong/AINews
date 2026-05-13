@@ -79,6 +79,49 @@ const impactRows = computed(() => {
   ]
 })
 
+const contentState = computed(() => {
+  const status = article.value?.contentStatus ?? 'summary_fallback'
+
+  if (status === 'full_content_ready') {
+    return {
+      label: 'Full content ready',
+      tone: 'ready',
+      generationLabel: aiReport.hasReport.value ? 'Use saved report' : 'Generate full AI report',
+      description: 'Readable source text is available for the AI report.',
+    }
+  }
+
+  if (status === 'extraction_failed') {
+    return {
+      label: 'Extraction failed',
+      tone: 'warning',
+      generationLabel: aiReport.hasReport.value ? 'Use saved report' : 'Generate from summary',
+      description: 'Source extraction failed, so the report will use RSS summary and metadata.',
+    }
+  }
+
+  if (status === 'extracting_source') {
+    return {
+      label: 'Extracting source',
+      tone: 'pending',
+      generationLabel: 'Generate from summary',
+      description: 'Source extraction is still pending; summary fallback remains available.',
+    }
+  }
+
+  return {
+    label: 'Summary fallback',
+    tone: 'fallback',
+    generationLabel: aiReport.hasReport.value ? 'Use saved report' : 'Generate from summary',
+    description: 'Full text is not available yet, so the report will use imported metadata.',
+  }
+})
+
+const sourceContentPreview = computed(() => {
+  const text = article.value?.contentText ?? article.value?.summary ?? ''
+  return text.length > 520 ? `${text.slice(0, 520).trim()}...` : text
+})
+
 const tagClass = computed(() => {
   const tag = article.value?.tags[0]
   if (tag === 'research') return 'tag-research'
@@ -172,7 +215,7 @@ function generateReport(force = false): void {
           <AiSummaryPanel v-else :article="article" />
           <div class="report-generate-row">
             <button class="action-btn primary" type="button" :disabled="aiReport.isGenerating.value" @click="generateReport(false)">
-              {{ aiReport.isGenerating.value ? 'Generating...' : aiReport.hasReport.value ? 'Use saved report' : 'Generate AI report' }}
+              {{ aiReport.isGenerating.value ? 'Generating...' : contentState.generationLabel }}
             </button>
             <button class="action-btn" type="button" :disabled="aiReport.isGenerating.value" @click="generateReport(true)">
               Regenerate
@@ -185,7 +228,21 @@ function generateReport(force = false): void {
         </section>
 
         <section class="section">
-          <div class="section-label"><span class="section-label-icon">02</span> Key Points</div>
+          <div class="section-label"><span class="section-label-icon">02</span> Source Content</div>
+          <div class="source-content-card" :class="`source-content-card--${contentState.tone}`">
+            <div class="source-content-head">
+              <span class="source-content-status">{{ contentState.label }}</span>
+              <span v-if="article.contentExtractedAt" class="source-content-time">
+                {{ new Date(article.contentExtractedAt).toLocaleString() }}
+              </span>
+            </div>
+            <p class="source-content-note">{{ contentState.description }}</p>
+            <p class="source-content-preview">{{ sourceContentPreview || 'No readable source content has been imported yet.' }}</p>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-label"><span class="section-label-icon">03</span> Key Points</div>
           <div class="keypoints">
             <article v-for="(point, index) in keyPoints" :key="point.title" class="kp-card">
               <div class="kp-num">{{ index + 1 }}</div>
@@ -198,7 +255,7 @@ function generateReport(force = false): void {
         </section>
 
         <section class="section">
-          <div class="section-label"><span class="section-label-icon">03</span> Upside vs Risk</div>
+          <div class="section-label"><span class="section-label-icon">04</span> Upside vs Risk</div>
           <div class="procon-grid">
             <div class="procon-card pro-card">
               <h2 class="procon-title">Upside</h2>
@@ -216,7 +273,7 @@ function generateReport(force = false): void {
         </section>
 
         <section class="section">
-          <div class="section-label"><span class="section-label-icon">04</span> Context Timeline</div>
+          <div class="section-label"><span class="section-label-icon">05</span> Context Timeline</div>
           <div class="timeline">
             <div v-for="(item, index) in timeline" :key="`${item.label}-${index}`" class="tl-item">
               <div class="tl-left">

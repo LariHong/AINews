@@ -3,6 +3,7 @@ using System.Text;
 using System.Xml.Linq;
 using AiDaily.Application.Articles;
 using AiDaily.Domain.Entities;
+using AiDaily.Infrastructure.ContentExtraction;
 
 namespace AiDaily.Infrastructure.FeedCrawler;
 
@@ -10,11 +11,16 @@ public sealed class RssFeedCrawler
 {
     private readonly HttpClient _httpClient;
     private readonly IArticleRepository _articles;
+    private readonly IArticleContentExtractor? _contentExtractor;
 
-    public RssFeedCrawler(HttpClient httpClient, IArticleRepository articles)
+    public RssFeedCrawler(
+        HttpClient httpClient,
+        IArticleRepository articles,
+        IArticleContentExtractor? contentExtractor = null)
     {
         _httpClient = httpClient;
         _articles = articles;
+        _contentExtractor = contentExtractor;
     }
 
     public async Task<FeedCrawlResult> CrawlAsync(
@@ -44,11 +50,20 @@ public sealed class RssFeedCrawler
                         continue;
                     }
 
+                    var summary = ReadValue(item, "description");
+                    var content = _contentExtractor is null
+                        ? ArticleContentExtractionResult.SummaryFallback(summary)
+                        : await _contentExtractor.ExtractAsync(link, summary, cancellationToken);
+
                     await _articles.UpsertAsync(new Article
                     {
                         Id = CreateStableId(link),
                         Title = title,
-                        Summary = ReadValue(item, "description"),
+                        Summary = summary,
+                        Content = content.Content,
+                        ContentText = content.ContentText,
+                        ContentStatus = content.Status,
+                        ContentExtractedAt = content.ExtractedAt,
                         SourceUrl = link,
                         SourceId = source.Id,
                         SourceName = source.Name,
