@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
+import AiSummaryPanel from '@/components/ai/AiSummaryPanel.vue'
 import ArticleFeed from '@/components/article/ArticleFeed.vue'
 import TagFilter from '@/components/common/TagFilter.vue'
 import { useArticleStore } from '@/stores/articleStore'
@@ -148,26 +149,7 @@ onMounted(() => {
       <aside class="side-panel" aria-label="Article insights">
         <section class="panel-section">
           <div class="panel-label"><span class="panel-label-dot"></span> AI Quick Summary</div>
-          <div v-if="selectedArticle" class="quick-summary-card">
-            <div class="qs-article-title">{{ selectedArticle.title }}</div>
-            <div class="qs-row">
-              <div class="qs-label">Why it matters</div>
-              <div class="qs-value">{{ selectedArticle.summary ?? 'This article is waiting for a generated summary.' }}</div>
-            </div>
-            <div class="qs-divider"></div>
-            <div class="qs-row">
-              <div class="qs-label">Reading time</div>
-              <div class="qs-value">{{ selectedArticle.readTimeMinutes ?? 4 }} minutes from {{ selectedArticle.sourceName }}.</div>
-            </div>
-            <div class="qs-divider"></div>
-            <div class="qs-row">
-              <div class="qs-label">Tags</div>
-              <div class="qs-value">{{ selectedArticle.tags.join(', ') || 'untagged' }}</div>
-            </div>
-            <RouterLink class="btn-full-report" :to="{ name: 'report', params: { id: selectedArticle.id } }">
-              Open Full Report
-            </RouterLink>
-          </div>
+          <AiSummaryPanel :article="selectedArticle ?? null" compact />
         </section>
 
         <section class="panel-section">

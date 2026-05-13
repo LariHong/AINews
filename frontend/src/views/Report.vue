@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
+import AiSummaryPanel from '@/components/ai/AiSummaryPanel.vue'
 import { useArticle } from '@/composables/useArticle'
 
 const route = useRoute()
@@ -107,9 +108,7 @@ function toggleTheme(): void {
 
         <section class="section">
           <div class="section-label"><span class="section-label-icon">01</span> TL;DR</div>
-          <div class="tldr-block">
-            <p class="tldr-text">{{ article.summary ?? 'No summary available yet.' }}</p>
-          </div>
+          <AiSummaryPanel :article="article" />
         </section>
 
         <section class="section">

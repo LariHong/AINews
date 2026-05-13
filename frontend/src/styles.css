@@ -582,11 +582,90 @@ a {
 }
 
 .quick-summary-card,
-.opinion-card {
+.opinion-card,
+.ai-summary-panel {
   border: 1px solid var(--accent-glow);
   border-radius: 12px;
   background: linear-gradient(135deg, var(--accent-soft), transparent);
   padding: 14px;
+}
+
+.ai-summary-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-summary-panel--compact {
+  gap: 10px;
+}
+
+.summary-content,
+.summary-block,
+.summary-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.summary-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-weight: 700;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.summary-label {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.summary-list li,
+.summary-block p,
+.summary-metric p,
+.summary-state {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.summary-metric {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  padding: 10px;
+}
+
+.summary-state {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  padding: 12px;
+}
+
+.summary-state--error {
+  border-color: #ef444455;
+  color: #f87171;
 }
 
 .qs-article-title {
@@ -1017,7 +1096,8 @@ a {
 
 @media (max-width: 620px) {
   .stats-row,
-  .procon-grid {
+  .procon-grid,
+  .summary-grid {
     grid-template-columns: 1fr;
   }
 

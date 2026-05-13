@@ -1,4 +1,8 @@
+using AiDaily.Application.AiSummaries;
 using AiDaily.Application.Articles;
+using AiDaily.Domain.Entities;
+using AiDaily.Infrastructure.AI;
+using AiDaily.Infrastructure.Cache;
 using AiDaily.Infrastructure.FeedCrawler;
 using AiDaily.Infrastructure.Repositories;
 using System.Net;
@@ -11,6 +15,9 @@ await ShouldFilterByTagAndPaginate();
 await ShouldGetArticleById();
 await ShouldReturnNullForMissingArticle();
 await ShouldCrawlRssIntoArticles();
+await ShouldGetAiSummaryPreview();
+await ShouldReturnSummaryNotFound();
+await ShouldCacheAiSummaryPreview();
 
 Console.WriteLine("AiDaily.UnitTests passed");
 
@@ -75,6 +82,48 @@ async Task ShouldCrawlRssIntoArticles()
     Assert(imported!.SourceUrl == "https://example.com/ai-feed-story", "crawler should preserve source_url");
 }
 
+async Task ShouldGetAiSummaryPreview()
+{
+    var summaryService = new AiSummaryQueryService(
+        repository,
+        new InMemoryAiSummaryRepository(),
+        new InMemoryAiSummaryReadCache());
+
+    var result = await summaryService.GetPreviewAsync("art_01JAI001");
+
+    Assert(result.Status == AiSummaryQueryStatus.Found, "summary query should find seeded summary");
+    Assert(result.Summary?.Highlights.Count > 0, "summary preview should include highlights");
+    Assert(result.Summary?.ImpactScope.Length > 0, "summary preview should include impact scope");
+}
+
+async Task ShouldReturnSummaryNotFound()
+{
+    var summaryService = new AiSummaryQueryService(
+        repository,
+        new InMemoryAiSummaryRepository(),
+        new InMemoryAiSummaryReadCache());
+
+    var result = await summaryService.GetPreviewAsync("art_01JAI002");
+
+    Assert(result.Status == AiSummaryQueryStatus.SummaryNotFound, "article without summary should return summary-not-found status");
+}
+
+async Task ShouldCacheAiSummaryPreview()
+{
+    var summaryRepository = new CountingSummaryRepository();
+    var summaryService = new AiSummaryQueryService(
+        repository,
+        summaryRepository,
+        new InMemoryAiSummaryReadCache());
+
+    var first = await summaryService.GetPreviewAsync("art_01JAI001");
+    var second = await summaryService.GetPreviewAsync("art_01JAI001");
+
+    Assert(first.Status == AiSummaryQueryStatus.Found, "first summary query should find summary");
+    Assert(second.Status == AiSummaryQueryStatus.Found, "second summary query should find cached summary");
+    Assert(summaryRepository.ReadCount == 1, "summary repository should only be read once when cache is warm");
+}
+
 static void Assert(bool condition, string message)
 {
     if (!condition)
@@ -97,4 +146,25 @@ internal sealed class StaticRssHandler : HttpMessageHandler
         {
             Content = new StringContent(_rss)
         });
+}
+
+internal sealed class CountingSummaryRepository : IAiSummaryRepository
+{
+    public int ReadCount { get; private set; }
+
+    public Task<AiSummary?> GetByArticleIdAsync(string articleId, CancellationToken cancellationToken)
+    {
+        ReadCount++;
+
+        return Task.FromResult<AiSummary?>(new AiSummary
+        {
+            Id = "sum_counting",
+            ArticleId = articleId,
+            Highlights = ["Cached highlight"],
+            ImpactScope = "Cache validation",
+            Controversy = "None",
+            EditorView = "Use cached previews for repeated reads.",
+            GeneratedAt = DateTimeOffset.Parse("2026-05-12T08:00:00Z")
+        });
+    }
 }
