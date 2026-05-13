@@ -7,6 +7,7 @@ public sealed class Article
     public string? Summary { get; init; }
     public string? Content { get; init; }
     public required string SourceUrl { get; init; }
+    public string? SourceId { get; init; }
     public required string SourceName { get; init; }
     public string? SourceLogoUrl { get; init; }
     public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();

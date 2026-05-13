@@ -38,3 +38,15 @@ export interface ApiResponse<T> {
     requestId: string
   }
 }
+
+export interface ApiErrorResponse {
+  success: false
+  error: {
+    code: string
+    message: string
+  }
+  meta: {
+    timestamp: string
+    requestId: string
+  }
+}

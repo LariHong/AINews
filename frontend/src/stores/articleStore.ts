@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { fetchArticles } from '@/services/apiClient'
+import { fetchArticle, fetchArticles } from '@/services/apiClient'
 import type { Article, ArticleListParams } from '@/types/article'
 
 export const useArticleStore = defineStore('articleStore', {
@@ -9,6 +9,9 @@ export const useArticleStore = defineStore('articleStore', {
     cursor: null as string | null,
     hasMore: false,
     totalCount: 0,
+    selectedArticle: null as Article | null,
+    isDetailLoading: false,
+    detailErrorCode: '',
     isLoading: false,
     errorMessage: '',
     filters: {
@@ -47,6 +50,22 @@ export const useArticleStore = defineStore('articleStore', {
     async applyFilters(): Promise<void> {
       this.cursor = null
       await this.loadArticles(true)
+    },
+    async loadArticle(id: string): Promise<void> {
+      this.isDetailLoading = true
+      this.detailErrorCode = ''
+      this.errorMessage = ''
+
+      try {
+        const cachedArticle = this.articles.find((article) => article.id === id)
+        this.selectedArticle = cachedArticle ?? (await fetchArticle(id))
+      } catch (error) {
+        this.selectedArticle = null
+        this.detailErrorCode = error instanceof Error ? error.name : 'API_ERROR'
+        this.errorMessage = error instanceof Error ? error.message : 'Unable to load article'
+      } finally {
+        this.isDetailLoading = false
+      }
     },
   },
 })

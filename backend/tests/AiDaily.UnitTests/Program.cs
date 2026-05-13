@@ -1,10 +1,16 @@
 using AiDaily.Application.Articles;
+using AiDaily.Infrastructure.FeedCrawler;
 using AiDaily.Infrastructure.Repositories;
+using System.Net;
 
-var service = new ArticleQueryService(new InMemoryArticleRepository());
+var repository = new InMemoryArticleRepository();
+var service = new ArticleQueryService(repository);
 
 await ShouldFilterByKeyword();
 await ShouldFilterByTagAndPaginate();
+await ShouldGetArticleById();
+await ShouldReturnNullForMissingArticle();
+await ShouldCrawlRssIntoArticles();
 
 Console.WriteLine("AiDaily.UnitTests passed");
 
@@ -27,10 +33,68 @@ async Task ShouldFilterByTagAndPaginate()
     Assert(firstPage.Items[0].Id != secondPage.Items[0].Id, "cursor should advance to a different article");
 }
 
+async Task ShouldGetArticleById()
+{
+    var article = await service.GetArticleAsync("art_01JAI001");
+
+    Assert(article is not null, "detail query should return an article");
+    Assert(article!.SourceUrl == "https://openai.com/news/", "detail query should return the requested article");
+}
+
+async Task ShouldReturnNullForMissingArticle()
+{
+    var article = await service.GetArticleAsync("missing");
+
+    Assert(article is null, "detail query should return null for missing article");
+}
+
+async Task ShouldCrawlRssIntoArticles()
+{
+    const string rss = """
+        <rss version="2.0">
+          <channel>
+            <item>
+              <title>Example AI feed story</title>
+              <link>https://example.com/ai-feed-story</link>
+              <description>Imported from RSS.</description>
+              <pubDate>Tue, 12 May 2026 06:30:00 GMT</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """;
+
+    using var httpClient = new HttpClient(new StaticRssHandler(rss));
+    var crawler = new RssFeedCrawler(httpClient, repository);
+    var result = await crawler.CrawlAsync([SeedFeedSources.All[0]]);
+    var articles = await repository.ListAsync(CancellationToken.None);
+    var imported = articles.FirstOrDefault(article => article.SourceUrl == "https://example.com/ai-feed-story");
+
+    Assert(result.SourcesVisited == 1, "crawler should visit one configured source");
+    Assert(result.ArticlesPersisted == 1, "crawler should persist one RSS item");
+    Assert(imported is not null, "crawler should persist article by stable source URL id");
+    Assert(imported!.SourceUrl == "https://example.com/ai-feed-story", "crawler should preserve source_url");
+}
+
 static void Assert(bool condition, string message)
 {
     if (!condition)
     {
         throw new InvalidOperationException(message);
     }
+}
+
+internal sealed class StaticRssHandler : HttpMessageHandler
+{
+    private readonly string _rss;
+
+    public StaticRssHandler(string rss)
+    {
+        _rss = rss;
+    }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(_rss)
+        });
 }

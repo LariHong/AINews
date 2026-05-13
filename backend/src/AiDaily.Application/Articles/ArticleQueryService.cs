@@ -44,6 +44,17 @@ public sealed class ArticleQueryService
             totalCount);
     }
 
+    public async Task<ArticleDto?> GetArticleAsync(string id, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        var article = await _articles.GetByIdAsync(id, cancellationToken);
+        return article is null ? null : ToDto(article);
+    }
+
     private static IEnumerable<Article> ApplyFilters(
         IEnumerable<Article> source,
         ArticleListParams parameters)

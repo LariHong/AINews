@@ -1,17 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { useArticleStore } from '@/stores/articleStore'
+import { useArticle } from '@/composables/useArticle'
 
 const route = useRoute()
-const articleStore = useArticleStore()
 const theme = ref<'dark' | 'light'>('dark')
 
-const article = computed(() => {
-  const id = String(route.params.id ?? '')
-  return articleStore.articles.find((item) => item.id === id) ?? articleStore.articles[0]
-})
+const articleId = computed(() => String(route.params.id ?? ''))
+const { article, errorMessage, isLoading, isNotFound } = useArticle(() => articleId.value)
 
 const keyPoints = computed(() => {
   const current = article.value
@@ -56,11 +53,6 @@ function toggleTheme(): void {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
 }
 
-onMounted(async () => {
-  if (articleStore.articles.length === 0) {
-    await articleStore.loadArticles(true)
-  }
-})
 </script>
 
 <template>
@@ -79,7 +71,27 @@ onMounted(async () => {
       </div>
     </header>
 
-    <main v-if="article" class="report-main">
+    <main v-if="isLoading" class="report-main report-main--single">
+      <div class="report-body">
+        <div class="feed-state">Loading report...</div>
+      </div>
+    </main>
+
+    <main v-else-if="isNotFound" class="report-main report-main--single">
+      <div class="report-body">
+        <div class="feed-state feed-state--error">
+          Article not found. This report may have moved or the feed item has not been imported yet.
+        </div>
+      </div>
+    </main>
+
+    <main v-else-if="errorMessage" class="report-main report-main--single">
+      <div class="report-body">
+        <div class="feed-state feed-state--error">{{ errorMessage }}</div>
+      </div>
+    </main>
+
+    <main v-else-if="article" class="report-main">
       <div class="report-body">
         <section class="origin-card">
           <div class="origin-icon">AI</div>
@@ -207,7 +219,7 @@ onMounted(async () => {
       </aside>
     </main>
 
-    <main v-else class="report-main">
+    <main v-else class="report-main report-main--single">
       <div class="report-body">
         <div class="feed-state">Loading report...</div>
       </div>

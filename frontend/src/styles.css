@@ -320,6 +320,10 @@ a {
   grid-template-columns: minmax(0, 1fr) 280px;
 }
 
+.report-main--single {
+  grid-template-columns: 1fr;
+}
+
 .feed,
 .report-body {
   display: flex;

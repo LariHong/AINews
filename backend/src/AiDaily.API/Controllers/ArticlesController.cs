@@ -36,6 +36,24 @@ public sealed class ArticlesController : ControllerBase
 
         return Ok(ApiResponse<ArticleListResponse>.Ok(response));
     }
+
+    [HttpGet("{id}")]
+    [ProducesResponseType(typeof(ApiResponse<ArticleDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<ArticleDto>>> GetArticle(
+        [FromRoute] string id,
+        CancellationToken cancellationToken = default)
+    {
+        var article = await _articleQueryService.GetArticleAsync(id, cancellationToken);
+        if (article is null)
+        {
+            return NotFound(ApiErrorResponse.Fail(
+                "ARTICLE_NOT_FOUND",
+                $"Article '{id}' was not found."));
+        }
+
+        return Ok(ApiResponse<ArticleDto>.Ok(article));
+    }
 }
 
 public sealed record ArticleListResponse(
