@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 
-import { fetchArticle, fetchArticles } from '@/services/apiClient'
-import type { Article, ArticleListParams } from '@/types/article'
+import { fetchArticle, fetchArticles, fetchTodayStats } from '@/services/apiClient'
+import type { Article, ArticleListParams, DashboardStats } from '@/types/article'
 
 export const useArticleStore = defineStore('articleStore', {
   state: () => ({
@@ -10,8 +10,11 @@ export const useArticleStore = defineStore('articleStore', {
     hasMore: false,
     totalCount: 0,
     selectedArticle: null as Article | null,
+    dashboardStats: null as DashboardStats | null,
     isDetailLoading: false,
+    isStatsLoading: false,
     detailErrorCode: '',
+    statsErrorMessage: '',
     isLoading: false,
     errorMessage: '',
     filters: {
@@ -50,6 +53,19 @@ export const useArticleStore = defineStore('articleStore', {
     async applyFilters(): Promise<void> {
       this.cursor = null
       await this.loadArticles(true)
+    },
+    async loadTodayStats(): Promise<void> {
+      this.isStatsLoading = true
+      this.statsErrorMessage = ''
+
+      try {
+        this.dashboardStats = await fetchTodayStats()
+      } catch (error) {
+        this.dashboardStats = null
+        this.statsErrorMessage = error instanceof Error ? error.message : 'Unable to load dashboard stats'
+      } finally {
+        this.isStatsLoading = false
+      }
     },
     async loadArticle(id: string): Promise<void> {
       this.isDetailLoading = true

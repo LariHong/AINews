@@ -368,6 +368,15 @@ a {
   opacity: 0.5;
 }
 
+.dashboard-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 .stat-num {
   color: var(--text-primary);
   font-family: var(--font-display);

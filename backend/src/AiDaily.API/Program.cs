@@ -1,5 +1,6 @@
 using AiDaily.Application.Articles;
 using AiDaily.Application.AiSummaries;
+using AiDaily.Application.Stats;
 using AiDaily.Infrastructure.AI;
 using AiDaily.API.Middleware;
 using AiDaily.Infrastructure.Cache;
@@ -26,11 +27,13 @@ builder.Services.Configure<AiProviderOptions>(options =>
 builder.Services.AddSingleton(serviceProvider =>
     serviceProvider.GetRequiredService<IOptions<AiProviderOptions>>().Value);
 builder.Services.AddSingleton<IArticleRepository, InMemoryArticleRepository>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IAiSummaryRepository, InMemoryAiSummaryRepository>();
 builder.Services.AddSingleton<IAiSummaryReadCache, InMemoryAiSummaryReadCache>();
 builder.Services.AddSingleton<IAiReportRepository, InMemoryAiReportRepository>();
 builder.Services.AddSingleton<IAiReportGenerationTracker, InMemoryAiReportGenerationTracker>();
 builder.Services.AddScoped<ArticleQueryService>();
+builder.Services.AddScoped<DashboardStatsQueryService>();
 builder.Services.AddScoped<AiSummaryQueryService>();
 builder.Services.AddScoped<AiReportQueryService>();
 builder.Services.AddScoped<AiReportGenerationService>();

@@ -30,6 +30,25 @@ export interface ArticleListResponse {
   }
 }
 
+export interface StatsBreakdownItem {
+  name: string
+  count: number
+}
+
+export interface DashboardStats {
+  totalArticles: number
+  aiSummarizedCount: number
+  tagBreakdown: StatsBreakdownItem[]
+  topSources: StatsBreakdownItem[]
+  updatedAt: string | null
+  syncStatus: {
+    isSyncing: boolean
+    sourcesSynced: number
+    sourceFailures: number
+    message: string
+  }
+}
+
 export interface ApiResponse<T> {
   success: boolean
   data: T

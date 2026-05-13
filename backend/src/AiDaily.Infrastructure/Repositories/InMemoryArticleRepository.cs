@@ -18,7 +18,7 @@ public sealed class InMemoryArticleRepository : IArticleRepository
             SourceId = "openai-news",
             SourceName = "OpenAI News",
             Tags = ["model", "product"],
-            PublishedAt = DateTimeOffset.Parse("2026-05-12T06:00:00Z"),
+            PublishedAt = DateTimeOffset.Parse("2026-05-13T06:00:00Z"),
             HasAiSummary = true,
             IsBookmarked = false,
             ReadTimeMinutes = 5
@@ -32,7 +32,7 @@ public sealed class InMemoryArticleRepository : IArticleRepository
             SourceId = "huggingface-blog",
             SourceName = "Hugging Face Blog",
             Tags = ["research", "model"],
-            PublishedAt = DateTimeOffset.Parse("2026-05-12T04:30:00Z"),
+            PublishedAt = DateTimeOffset.Parse("2026-05-13T04:30:00Z"),
             HasAiSummary = false,
             IsBookmarked = false,
             ReadTimeMinutes = 7

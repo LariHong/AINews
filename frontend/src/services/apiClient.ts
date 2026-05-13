@@ -1,4 +1,11 @@
-import type { ApiErrorResponse, ApiResponse, Article, ArticleListParams, ArticleListResponse } from '@/types/article'
+import type {
+  ApiErrorResponse,
+  ApiResponse,
+  Article,
+  ArticleListParams,
+  ArticleListResponse,
+  DashboardStats,
+} from '@/types/article'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
@@ -35,6 +42,17 @@ export async function fetchArticle(id: string): Promise<Article> {
   }
 
   const payload = (await response.json()) as ApiResponse<Article>
+  return payload.data
+}
+
+export async function fetchTodayStats(): Promise<DashboardStats> {
+  const response = await fetch(`${API_BASE_URL}/stats/today`)
+
+  if (!response.ok) {
+    throw await createApiError(response, `Stats API failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as ApiResponse<DashboardStats>
   return payload.data
 }
 
