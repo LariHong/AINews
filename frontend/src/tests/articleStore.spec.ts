@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import { useAiSummaryStore } from '@/stores/aiSummaryStore'
 import { useArticleStore } from '@/stores/articleStore'
+import { fetchTodayStats } from '@/services/apiClient'
 
 vi.mock('@/services/apiClient', () => ({
   fetchArticles: vi.fn(async () => ({
@@ -40,6 +41,19 @@ vi.mock('@/services/apiClient', () => ({
     isBookmarked: false,
     readTimeMinutes: 5,
   })),
+  fetchTodayStats: vi.fn(async () => ({
+    totalArticles: 2,
+    aiSummarizedCount: 1,
+    tagBreakdown: [{ name: 'model', count: 2 }],
+    topSources: [{ name: 'Example', count: 2 }],
+    updatedAt: '2026-05-13T06:00:00Z',
+    syncStatus: {
+      isSyncing: false,
+      sourcesSynced: 1,
+      sourceFailures: 0,
+      message: '1 sources synced',
+    },
+  })),
 }))
 
 vi.mock('@/services/aiSummaryApi', () => ({
@@ -73,6 +87,30 @@ describe('articleStore', () => {
 
     expect(store.selectedArticle?.id).toBe('art_01')
     expect(store.detailErrorCode).toBe('')
+  })
+
+  it('loads dashboard stats into independent state', async () => {
+    setActivePinia(createPinia())
+    const store = useArticleStore()
+
+    await store.loadTodayStats()
+
+    expect(store.dashboardStats?.totalArticles).toBe(2)
+    expect(store.dashboardStats?.tagBreakdown[0].name).toBe('model')
+    expect(store.statsErrorMessage).toBe('')
+  })
+
+  it('keeps article state usable when stats fail', async () => {
+    vi.mocked(fetchTodayStats).mockRejectedValueOnce(new Error('Stats down'))
+    setActivePinia(createPinia())
+    const store = useArticleStore()
+
+    await store.loadArticles(true)
+    await store.loadTodayStats()
+
+    expect(store.articles).toHaveLength(1)
+    expect(store.dashboardStats).toBeNull()
+    expect(store.statsErrorMessage).toBe('Stats down')
   })
 
   it('loads an AI summary preview into state', async () => {

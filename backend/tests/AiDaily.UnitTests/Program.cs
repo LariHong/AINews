@@ -1,5 +1,6 @@
 using AiDaily.Application.AiSummaries;
 using AiDaily.Application.Articles;
+using AiDaily.Application.Stats;
 using AiDaily.Domain.Entities;
 using AiDaily.Infrastructure.AI;
 using AiDaily.Infrastructure.Cache;
@@ -12,6 +13,7 @@ var service = new ArticleQueryService(repository);
 
 await ShouldFilterByKeyword();
 await ShouldFilterByTagAndPaginate();
+await ShouldGetTodayDashboardStats();
 await ShouldGetArticleById();
 await ShouldReturnNullForMissingArticle();
 await ShouldCrawlRssIntoArticles();
@@ -41,6 +43,21 @@ async Task ShouldFilterByTagAndPaginate()
     Assert(firstPage.HasMore, "first page should report more items");
     Assert(secondPage.Items.Count == 1, "second page should contain one item");
     Assert(firstPage.Items[0].Id != secondPage.Items[0].Id, "cursor should advance to a different article");
+}
+
+async Task ShouldGetTodayDashboardStats()
+{
+    var statsService = new DashboardStatsQueryService(
+        repository,
+        new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
+
+    var stats = await statsService.GetTodayAsync();
+
+    Assert(stats.TotalArticles == 2, "today stats should count only today's articles");
+    Assert(stats.AiSummarizedCount == 1, "today stats should count AI summarized articles");
+    Assert(stats.TagBreakdown.Any(item => item.Name == "model" && item.Count == 2), "today stats should include tag breakdown");
+    Assert(stats.TopSources.Count == 2, "today stats should include top sources");
+    Assert(stats.SyncStatus.SourcesSynced == 2, "today stats should include source sync count");
 }
 
 async Task ShouldGetArticleById()
@@ -224,6 +241,18 @@ internal sealed class StaticRssHandler : HttpMessageHandler
         {
             Content = new StringContent(_rss)
         });
+}
+
+internal sealed class FixedTimeProvider : TimeProvider
+{
+    private readonly DateTimeOffset _utcNow;
+
+    public FixedTimeProvider(DateTimeOffset utcNow)
+    {
+        _utcNow = utcNow;
+    }
+
+    public override DateTimeOffset GetUtcNow() => _utcNow;
 }
 
 internal sealed class CountingSummaryRepository : IAiSummaryRepository

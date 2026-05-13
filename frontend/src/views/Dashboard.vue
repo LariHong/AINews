@@ -21,6 +21,17 @@ const bookmarkedArticles = computed(() => {
 })
 
 const tagStats = computed(() => {
+  if (articleStore.dashboardStats) {
+    const max = Math.max(1, ...articleStore.dashboardStats.tagBreakdown.map((item) => item.count))
+    return articleStore.dashboardStats.tagBreakdown
+      .slice(0, 4)
+      .map((item) => ({
+        tag: item.name,
+        count: item.count,
+        width: `${Math.max(12, Math.round((item.count / max) * 100))}%`,
+      }))
+  }
+
   const counts = articleStore.articles.reduce<Record<string, number>>((acc, article) => {
     article.tags.forEach((tag) => {
       acc[tag] = (acc[tag] ?? 0) + 1
@@ -36,6 +47,12 @@ const tagStats = computed(() => {
 })
 
 const sourceStats = computed(() => {
+  if (articleStore.dashboardStats) {
+    return articleStore.dashboardStats.topSources
+      .slice(0, 5)
+      .map((item) => ({ source: item.name, count: item.count }))
+  }
+
   const counts = articleStore.articles.reduce<Record<string, number>>((acc, article) => {
     acc[article.sourceName] = (acc[article.sourceName] ?? 0) + 1
     return acc
@@ -45,6 +62,56 @@ const sourceStats = computed(() => {
     .sort(([, a], [, b]) => b - a)
     .slice(0, 5)
     .map(([source, count]) => ({ source, count }))
+})
+
+const totalArticles = computed(() => articleStore.dashboardStats?.totalArticles ?? articleStore.totalCount)
+
+const aiSummarizedCount = computed(() => {
+  return articleStore.dashboardStats?.aiSummarizedCount ?? articleStore.articles.filter((article) => article.hasAiSummary).length
+})
+
+const statsUpdatedLabel = computed(() => {
+  if (articleStore.isStatsLoading) {
+    return 'Syncing sources...'
+  }
+
+  if (articleStore.statsErrorMessage) {
+    return 'Stats temporarily unavailable'
+  }
+
+  const updatedAt = articleStore.dashboardStats?.updatedAt
+  if (!updatedAt) {
+    return 'No updates yet today'
+  }
+
+  const elapsedMinutes = Math.max(0, Math.round((Date.now() - new Date(updatedAt).getTime()) / 60000))
+  if (elapsedMinutes < 1) {
+    return 'Updated just now'
+  }
+
+  if (elapsedMinutes < 60) {
+    return `Updated ${elapsedMinutes} min ago`
+  }
+
+  const elapsedHours = Math.round(elapsedMinutes / 60)
+  return `Updated ${elapsedHours} hr ago`
+})
+
+const syncStatusLabel = computed(() => {
+  const status = articleStore.dashboardStats?.syncStatus
+  if (!status) {
+    return articleStore.statsErrorMessage ? 'Using article list fallback' : 'Source status pending'
+  }
+
+  if (status.isSyncing) {
+    return 'Syncing sources...'
+  }
+
+  if (status.sourceFailures > 0) {
+    return `${status.sourcesSynced} sources synced · ${status.sourceFailures} source failed`
+  }
+
+  return status.message
 })
 
 const todayLabel = new Intl.DateTimeFormat('en', {
@@ -72,6 +139,7 @@ watch(
 
 onMounted(() => {
   void articleStore.loadArticles(true)
+  void articleStore.loadTodayStats()
 })
 </script>
 
@@ -116,11 +184,11 @@ onMounted(() => {
       <section class="feed">
         <div class="stats-row">
           <div class="stat-card">
-            <div class="stat-num">{{ articleStore.totalCount }}</div>
+            <div class="stat-num">{{ totalArticles }}</div>
             <div class="stat-lbl">Articles</div>
           </div>
           <div class="stat-card">
-            <div class="stat-num">{{ articleStore.articles.filter((article) => article.hasAiSummary).length }}</div>
+            <div class="stat-num">{{ aiSummarizedCount }}</div>
             <div class="stat-lbl">AI Briefs</div>
           </div>
           <div class="stat-card">
@@ -131,6 +199,11 @@ onMounted(() => {
             <div class="stat-num">{{ bookmarkedArticles.length }}</div>
             <div class="stat-lbl">Saved</div>
           </div>
+        </div>
+
+        <div class="dashboard-status">
+          <span>{{ statsUpdatedLabel }}</span>
+          <span>{{ syncStatusLabel }}</span>
         </div>
 
         <div class="section-heading">Latest Signal</div>
