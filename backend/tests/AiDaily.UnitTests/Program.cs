@@ -18,6 +18,9 @@ await ShouldCrawlRssIntoArticles();
 await ShouldGetAiSummaryPreview();
 await ShouldReturnSummaryNotFound();
 await ShouldCacheAiSummaryPreview();
+await ShouldGenerateAndReadAiReport();
+await ShouldRejectInvalidAiReportDraft();
+await ShouldNormalizeSparseAiReportDraft();
 
 Console.WriteLine("AiDaily.UnitTests passed");
 
@@ -122,6 +125,81 @@ async Task ShouldCacheAiSummaryPreview()
     Assert(first.Status == AiSummaryQueryStatus.Found, "first summary query should find summary");
     Assert(second.Status == AiSummaryQueryStatus.Found, "second summary query should find cached summary");
     Assert(summaryRepository.ReadCount == 1, "summary repository should only be read once when cache is warm");
+}
+
+async Task ShouldGenerateAndReadAiReport()
+{
+    var reportRepository = new InMemoryAiReportRepository();
+    var generationService = new AiReportGenerationService(
+        repository,
+        reportRepository,
+        new StubAiReportGenerator(),
+        new InMemoryAiReportGenerationTracker());
+    var queryService = new AiReportQueryService(repository, reportRepository);
+
+    var start = await generationService.StartAsync("art_01JAI001", force: false);
+
+    Assert(start.Status == AiReportGenerationStartStatus.Ready, "report generation should start for an existing article");
+
+    await foreach (var streamEvent in start.Stream!)
+    {
+        Assert(streamEvent.Type != "error", "stub report generation should not emit an error event");
+    }
+
+    var result = await queryService.GetReportAsync("art_01JAI001");
+
+    Assert(result.Status == AiReportQueryStatus.Found, "generated report should be readable");
+    Assert(result.Report?.KeyPoints.Count > 0, "generated report should include key points");
+    Assert(result.Report?.Scores.Impact is >= 0 and <= 100, "generated report scores should be bounded");
+}
+
+Task ShouldRejectInvalidAiReportDraft()
+{
+    var invalid = new AiReportDraft(
+        "",
+        [],
+        [],
+        [],
+        [],
+        new AiReportScoresDto(101, -1, 50),
+        [],
+        "",
+        "surprise");
+
+    Assert(!AiReportValidation.TryValidate(invalid, out _), "invalid report drafts should be rejected");
+    return Task.CompletedTask;
+}
+
+Task ShouldNormalizeSparseAiReportDraft()
+{
+    var article = new Article
+    {
+        Id = "art_sparse",
+        Title = "Sparse provider response",
+        Summary = "Provider returned too little structure.",
+        SourceUrl = "https://example.com/sparse",
+        SourceName = "Example",
+        Tags = ["model"],
+        PublishedAt = DateTimeOffset.Parse("2026-05-13T00:00:00Z")
+    };
+    var sparse = new AiReportDraft(
+        "",
+        [],
+        [],
+        [],
+        [],
+        new AiReportScoresDto(150, -10, 40),
+        [],
+        "",
+        "unknown");
+
+    var normalized = AiReportDraftNormalizer.Normalize(sparse, article);
+
+    Assert(AiReportValidation.TryValidate(normalized, out _), "sparse provider drafts should normalize into valid reports");
+    Assert(normalized.Scores.Impact == 100, "impact score should be clamped");
+    Assert(normalized.Scores.Confidence == 0, "confidence score should be clamped");
+    Assert(normalized.Rating == "watchlist", "invalid rating should fall back to watchlist");
+    return Task.CompletedTask;
 }
 
 static void Assert(bool condition, string message)

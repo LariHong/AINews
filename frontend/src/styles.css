@@ -1045,6 +1045,23 @@ a {
   background: var(--bg-card);
 }
 
+.report-generate-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.report-stream-status {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.report-stream-status--error {
+  color: var(--red);
+}
+
 @media (max-width: 980px) {
   .app-shell {
     grid-template-rows: auto auto 1fr;
