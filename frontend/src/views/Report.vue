@@ -4,14 +4,23 @@ import { useRoute } from 'vue-router'
 
 import AiSummaryPanel from '@/components/ai/AiSummaryPanel.vue'
 import { useArticle } from '@/composables/useArticle'
+import { useAiReportStream } from '@/composables/useAiReportStream'
 
 const route = useRoute()
 const theme = ref<'dark' | 'light'>('dark')
 
 const articleId = computed(() => String(route.params.id ?? ''))
 const { article, errorMessage, isLoading, isNotFound } = useArticle(() => articleId.value)
+const aiReport = useAiReportStream(() => articleId.value)
 
 const keyPoints = computed(() => {
+  if (aiReport.report.value) {
+    return aiReport.report.value.keyPoints.map((description, index) => ({
+      title: `Key point ${index + 1}`,
+      description,
+    }))
+  }
+
   const current = article.value
   if (!current) return []
 
@@ -28,6 +37,45 @@ const keyPoints = computed(() => {
       title: 'What to monitor next',
       description: 'Watch for pricing, benchmarks, API availability, safety notes, and implementation examples.',
     },
+  ]
+})
+
+const pros = computed(() =>
+  aiReport.report.value?.pros ?? [
+    'Useful signal for product and engineering prioritization.',
+    'Good candidate for a deeper benchmark or source follow-up.',
+  ],
+)
+
+const cons = computed(() =>
+  aiReport.report.value?.cons ?? [
+    'Claims may need independent validation before operational decisions.',
+    'Summary depth depends on currently available source metadata.',
+  ],
+)
+
+const timeline = computed(() => {
+  if (aiReport.report.value) return aiReport.report.value.timeline
+  if (!article.value) return []
+
+  return [
+    {
+      label: 'Before publication',
+      description: 'Related model, safety, and agent news established the background for this update.',
+    },
+    {
+      label: publishedLabel.value,
+      description: `${article.value.sourceName} published this story and AI Daily indexed it for review.`,
+    },
+  ]
+})
+
+const impactRows = computed(() => {
+  const scores = aiReport.report.value?.scores
+  return [
+    { label: 'Impact', score: scores?.impact ?? 80, color: 'var(--accent)', warn: false },
+    { label: 'Confidence', score: scores?.confidence ?? 70, color: 'var(--green)', warn: false },
+    { label: 'Controversy', score: scores?.controversy ?? 50, color: 'var(--red)', warn: true },
   ]
 })
 
@@ -52,6 +100,10 @@ const publishedLabel = computed(() => {
 
 function toggleTheme(): void {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
+}
+
+function generateReport(force = false): void {
+  void aiReport.generate(force)
 }
 
 </script>
@@ -108,7 +160,28 @@ function toggleTheme(): void {
 
         <section class="section">
           <div class="section-label"><span class="section-label-icon">01</span> TL;DR</div>
-          <AiSummaryPanel :article="article" />
+          <div v-if="aiReport.hasReport.value" class="ai-summary-panel">
+            <div class="summary-content">
+              <p class="summary-editor">{{ aiReport.report.value?.tldr }}</p>
+              <div class="summary-meta">
+                <span>Provider: {{ aiReport.report.value?.provider }}</span>
+                <span>{{ new Date(aiReport.report.value?.generatedAt ?? '').toLocaleString() }}</span>
+              </div>
+            </div>
+          </div>
+          <AiSummaryPanel v-else :article="article" />
+          <div class="report-generate-row">
+            <button class="action-btn primary" type="button" :disabled="aiReport.isGenerating.value" @click="generateReport(false)">
+              {{ aiReport.isGenerating.value ? 'Generating...' : aiReport.hasReport.value ? 'Use saved report' : 'Generate AI report' }}
+            </button>
+            <button class="action-btn" type="button" :disabled="aiReport.isGenerating.value" @click="generateReport(true)">
+              Regenerate
+            </button>
+          </div>
+          <p v-if="aiReport.statusMessage.value" class="report-stream-status">{{ aiReport.statusMessage.value }}</p>
+          <p v-if="aiReport.errorMessage.value" class="report-stream-status report-stream-status--error">
+            {{ aiReport.errorMessage.value }}
+          </p>
         </section>
 
         <section class="section">
@@ -130,15 +203,13 @@ function toggleTheme(): void {
             <div class="procon-card pro-card">
               <h2 class="procon-title">Upside</h2>
               <div class="procon-list">
-                <p class="procon-item"><span class="procon-marker">+</span> Useful signal for product and engineering prioritization.</p>
-                <p class="procon-item"><span class="procon-marker">+</span> Good candidate for a deeper benchmark or source follow-up.</p>
+                <p v-for="item in pros" :key="item" class="procon-item"><span class="procon-marker">+</span> {{ item }}</p>
               </div>
             </div>
             <div class="procon-card con-card">
               <h2 class="procon-title">Risk</h2>
               <div class="procon-list">
-                <p class="procon-item"><span class="procon-marker">-</span> Claims may need independent validation before operational decisions.</p>
-                <p class="procon-item"><span class="procon-marker">-</span> Summary depth depends on currently available source metadata.</p>
+                <p v-for="item in cons" :key="item" class="procon-item"><span class="procon-marker">-</span> {{ item }}</p>
               </div>
             </div>
           </div>
@@ -147,23 +218,14 @@ function toggleTheme(): void {
         <section class="section">
           <div class="section-label"><span class="section-label-icon">04</span> Context Timeline</div>
           <div class="timeline">
-            <div class="tl-item">
+            <div v-for="(item, index) in timeline" :key="`${item.label}-${index}`" class="tl-item">
               <div class="tl-left">
-                <div class="tl-dot old"></div>
-                <div class="tl-line"></div>
+                <div class="tl-dot" :class="{ old: index === 0 }"></div>
+                <div v-if="index < timeline.length - 1" class="tl-line"></div>
               </div>
               <div class="tl-content">
-                <div class="tl-date">Before publication</div>
-                <p class="tl-text">Related model, safety, and agent news established the background for this update.</p>
-              </div>
-            </div>
-            <div class="tl-item">
-              <div class="tl-left">
-                <div class="tl-dot"></div>
-              </div>
-              <div class="tl-content">
-                <div class="tl-date">{{ publishedLabel }}</div>
-                <p class="tl-text">{{ article.sourceName }} published this story and AI Daily indexed it for review.</p>
+                <div class="tl-date">{{ item.label }}</div>
+                <p class="tl-text">{{ item.description }}</p>
               </div>
             </div>
           </div>
@@ -174,17 +236,12 @@ function toggleTheme(): void {
         <section class="side-section">
           <div class="side-label">Impact Meter</div>
           <div class="impact-rows">
-            <div class="impact-row">
-              <div class="impact-label"><span>Product relevance</span><span class="impact-score">8 / 10</span></div>
-              <div class="impact-bar-bg"><div class="impact-bar" style="width: 80%; background: var(--accent)"></div></div>
-            </div>
-            <div class="impact-row">
-              <div class="impact-label"><span>Developer impact</span><span class="impact-score">7 / 10</span></div>
-              <div class="impact-bar-bg"><div class="impact-bar" style="width: 70%; background: var(--green)"></div></div>
-            </div>
-            <div class="impact-row">
-              <div class="impact-label"><span>Risk level</span><span class="impact-score warn">5 / 10</span></div>
-              <div class="impact-bar-bg"><div class="impact-bar" style="width: 50%; background: var(--red)"></div></div>
+            <div v-for="row in impactRows" :key="row.label" class="impact-row">
+              <div class="impact-label">
+                <span>{{ row.label }}</span>
+                <span class="impact-score" :class="{ warn: row.warn }">{{ row.score }} / 100</span>
+              </div>
+              <div class="impact-bar-bg"><div class="impact-bar" :style="{ width: `${row.score}%`, background: row.color }"></div></div>
             </div>
           </div>
         </section>
@@ -193,17 +250,16 @@ function toggleTheme(): void {
           <div class="side-label">Editor Opinion</div>
           <div class="opinion-card">
             <p class="opinion-text">
-              Treat this as a high-signal update, but pair it with source verification and follow-up coverage before making strategic bets.
+              {{ aiReport.report.value?.editorNote ?? 'Treat this as a high-signal update, but pair it with source verification and follow-up coverage before making strategic bets.' }}
             </p>
-            <div class="opinion-stars" aria-label="4 out of 5">****<span class="star empty">*</span></div>
-            <div class="opinion-rating-label">Worth tracking</div>
+            <div class="opinion-rating-label">{{ aiReport.report.value?.rating ?? 'Worth tracking' }}</div>
           </div>
         </section>
 
         <section class="side-section">
           <div class="side-label">Related Tags</div>
           <div class="tag-cloud">
-            <span v-for="tag in article.tags" :key="tag" class="tag-chip">{{ tag }}</span>
+            <span v-for="tag in aiReport.report.value?.relatedTags ?? article.tags" :key="tag" class="tag-chip">{{ tag }}</span>
           </div>
         </section>
 
