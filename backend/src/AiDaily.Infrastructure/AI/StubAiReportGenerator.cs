@@ -15,7 +15,7 @@ public sealed class StubAiReportGenerator : IAiReportGenerator
         var report = new AiReportDraft(
             $"{article.Title} matters because it connects {primaryTag} news to near-term product and engineering decisions.",
             [
-                article.Summary ?? "The imported article did not include a source summary.",
+                article.ContentText ?? article.Summary ?? "The imported article did not include readable source content.",
                 $"{article.SourceName} is the source of record for this indexed story.",
                 $"Teams tracking {primaryTag} should verify the original article before making roadmap choices."
             ],
@@ -24,7 +24,9 @@ public sealed class StubAiReportGenerator : IAiReportGenerator
                 "Creates a reusable baseline report that can be refreshed when provider mode changes."
             ],
             [
-                "The generated analysis is only as complete as the imported article metadata.",
+                article.ContentStatus == "full_content_ready"
+                    ? "The generated analysis should still be checked against the original source."
+                    : "The generated analysis is based on summary fallback rather than full source text.",
                 "Facts beyond the indexed source should be verified before operational use."
             ],
             [

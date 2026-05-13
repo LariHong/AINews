@@ -4,6 +4,7 @@ using AiDaily.Application.Stats;
 using AiDaily.Infrastructure.AI;
 using AiDaily.API.Middleware;
 using AiDaily.Infrastructure.Cache;
+using AiDaily.Infrastructure.ContentExtraction;
 using AiDaily.Infrastructure.FeedCrawler;
 using AiDaily.Infrastructure.Repositories;
 using Microsoft.Extensions.Options;
@@ -38,6 +39,7 @@ builder.Services.AddScoped<AiSummaryQueryService>();
 builder.Services.AddScoped<AiReportQueryService>();
 builder.Services.AddScoped<AiReportGenerationService>();
 builder.Services.AddHttpClient<RssFeedCrawler>();
+builder.Services.AddHttpClient<IArticleContentExtractor, HtmlArticleContentExtractor>();
 builder.Services.AddHttpClient<GeminiAiReportGenerator>();
 builder.Services.AddScoped<StubAiReportGenerator>();
 builder.Services.AddScoped<IAiReportGenerator>(serviceProvider =>

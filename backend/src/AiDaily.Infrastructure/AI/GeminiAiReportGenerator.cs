@@ -83,6 +83,8 @@ public sealed class GeminiAiReportGenerator : IAiReportGenerator
         sourceUrl: {{article.SourceUrl}}
         publishedAt: {{article.PublishedAt:O}}
         tags: {{string.Join(", ", article.Tags)}}
+        contentStatus: {{article.ContentStatus}}
+        contentText: {{article.ContentText ?? article.Summary ?? "No article content was imported."}}
         """;
 
     private static string ToProviderErrorCode(HttpStatusCode statusCode) =>

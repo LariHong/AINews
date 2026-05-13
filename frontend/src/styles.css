@@ -1071,6 +1071,64 @@ a {
   color: var(--red);
 }
 
+.source-content-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  padding: 14px 16px;
+}
+
+.source-content-card--ready {
+  border-color: #10b98140;
+}
+
+.source-content-card--warning {
+  border-color: #ef444455;
+}
+
+.source-content-card--pending,
+.source-content-card--fallback {
+  border-color: #f59e0b45;
+}
+
+.source-content-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.source-content-status,
+.source-content-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.source-content-status {
+  color: var(--text-primary);
+}
+
+.source-content-time {
+  color: var(--text-muted);
+}
+
+.source-content-note,
+.source-content-preview {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.source-content-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
+
 @media (max-width: 980px) {
   .app-shell {
     grid-template-rows: auto auto 1fr;
