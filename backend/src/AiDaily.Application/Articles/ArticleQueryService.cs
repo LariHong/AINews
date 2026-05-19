@@ -1,21 +1,26 @@
 using AiDaily.Domain.Entities;
+using AiDaily.Application.Bookmarks;
 
 namespace AiDaily.Application.Articles;
 
 public sealed class ArticleQueryService
 {
     private readonly IArticleRepository _articles;
+    private readonly IBookmarkRepository _bookmarks;
 
-    public ArticleQueryService(IArticleRepository articles)
+    public ArticleQueryService(IArticleRepository articles, IBookmarkRepository bookmarks)
     {
         _articles = articles;
+        _bookmarks = bookmarks;
     }
 
     public async Task<PaginatedResult<ArticleDto>> GetArticlesAsync(
         ArticleListParams parameters,
+        string userId,
         CancellationToken cancellationToken = default)
     {
         var allArticles = await _articles.ListAsync(cancellationToken);
+        var bookmarkIds = await GetBookmarkIdsAsync(userId, cancellationToken);
         var filtered = ApplyFilters(allArticles, parameters)
             .Where(article => string.IsNullOrWhiteSpace(article.RejectionReason))
             .OrderByDescending(article => article.PublishedAt)
@@ -33,7 +38,7 @@ public sealed class ArticleQueryService
         var page = filtered
             .Skip(startIndex)
             .Take(parameters.SafeLimit)
-            .Select(ToDto)
+            .Select(article => ArticleDto.FromArticle(article, bookmarkIds.Contains(article.Id)))
             .ToList();
 
         var nextIndex = startIndex + page.Count;
@@ -46,7 +51,10 @@ public sealed class ArticleQueryService
             totalCount);
     }
 
-    public async Task<ArticleDto?> GetArticleAsync(string id, CancellationToken cancellationToken = default)
+    public async Task<ArticleDto?> GetArticleAsync(
+        string id,
+        string userId,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(id))
         {
@@ -54,7 +62,13 @@ public sealed class ArticleQueryService
         }
 
         var article = await _articles.GetByIdAsync(id, cancellationToken);
-        return article is null ? null : ToDto(article);
+        if (article is null)
+        {
+            return null;
+        }
+
+        var bookmarkIds = await GetBookmarkIdsAsync(userId, cancellationToken);
+        return ArticleDto.FromArticle(article, bookmarkIds.Contains(article.Id));
     }
 
     private static IEnumerable<Article> ApplyFilters(
@@ -94,23 +108,17 @@ public sealed class ArticleQueryService
     private static bool Contains(string? value, string keyword) =>
         value?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true;
 
-    private static ArticleDto ToDto(Article article) =>
-        new(
-            article.Id,
-            article.Title,
-            article.Summary,
-            article.Content,
-            article.ContentText,
-            article.ContentStatus,
-            article.ContentExtractedAt,
-            article.SourceUrl,
-            article.SourceName,
-            article.SourceLogoUrl,
-            article.Tags,
-            article.PublishedAt,
-            article.HasAiSummary,
-            article.IsBookmarked,
-            article.ReadTimeMinutes);
+    private async Task<IReadOnlySet<string>> GetBookmarkIdsAsync(
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return new HashSet<string>();
+        }
+
+        return await _bookmarks.ListArticleIdsAsync(userId, cancellationToken);
+    }
 
     private static string EncodeCursor(int index) =>
         Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(index.ToString()));

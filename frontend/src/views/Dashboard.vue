@@ -3,21 +3,22 @@ import { computed, onMounted, ref, watch } from 'vue'
 
 import AiSummaryPanel from '@/components/ai/AiSummaryPanel.vue'
 import ArticleFeed from '@/components/article/ArticleFeed.vue'
+import ThemeToggle from '@/components/common/ThemeToggle.vue'
 import TagFilter from '@/components/common/TagFilter.vue'
 import { useArticleStore } from '@/stores/articleStore'
+import { useThemeStore } from '@/stores/themeStore'
 import type { Article } from '@/types/article'
 
 const articleStore = useArticleStore()
+const themeStore = useThemeStore()
 const selectedArticleId = ref<string>('')
-const theme = ref<'dark' | 'light'>('dark')
 
 const selectedArticle = computed(() => {
   return articleStore.articles.find((article) => article.id === selectedArticleId.value) ?? articleStore.articles[0]
 })
 
 const bookmarkedArticles = computed(() => {
-  const saved = articleStore.articles.filter((article) => article.isBookmarked)
-  return saved.length > 0 ? saved : articleStore.articles.slice(0, 3)
+  return articleStore.articles.filter((article) => article.isBookmarked)
 })
 
 const tagStats = computed(() => {
@@ -147,10 +148,6 @@ function selectArticle(article: Article): void {
   selectedArticleId.value = article.id
 }
 
-function toggleTheme(): void {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark'
-}
-
 watch(
   () => articleStore.articles,
   (articles) => {
@@ -166,7 +163,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app-shell" :data-theme="theme">
+  <div class="app-shell" :data-theme="themeStore.resolvedTheme">
     <nav class="topnav">
       <RouterLink class="brand" :to="{ name: 'dashboard' }">
         <span class="brand-dot"></span>
@@ -176,10 +173,9 @@ onMounted(() => {
 
       <span class="nav-spacer"></span>
       <span class="nav-date">{{ todayLabel }}</span>
-      <button class="nav-btn" type="button">Saved</button>
-      <button class="theme-toggle" type="button" :aria-label="`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`" @click="toggleTheme">
-        {{ theme === 'dark' ? 'L' : 'D' }}
-      </button>
+      <RouterLink class="nav-btn" :to="{ name: 'bookmarks' }">Saved</RouterLink>
+      <RouterLink class="nav-btn" :to="{ name: 'settings' }">Settings</RouterLink>
+      <ThemeToggle />
     </nav>
 
     <form class="toolbar" @submit.prevent="articleStore.applyFilters">
@@ -274,6 +270,7 @@ onMounted(() => {
           :has-more="articleStore.hasMore"
           :selected-article-id="selectedArticle?.id"
           @select="selectArticle"
+          @bookmark="articleStore.setBookmark"
           @load-more="articleStore.loadArticles(false)"
         />
       </section>
@@ -297,6 +294,10 @@ onMounted(() => {
               <span class="bm-dot"></span>
               <span class="bm-title">{{ article.title }}</span>
             </button>
+            <RouterLink v-if="bookmarkedArticles.length === 0" class="bookmark-item" :to="{ name: 'bookmarks' }">
+              <span class="bm-dot"></span>
+              <span class="bm-title">No saved articles yet.</span>
+            </RouterLink>
           </div>
         </section>
 

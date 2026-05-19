@@ -118,6 +118,10 @@ a {
   grid-template-rows: 52px 1fr;
 }
 
+.bookmarks-shell {
+  grid-template-rows: 52px 1fr;
+}
+
 .topnav,
 .toolbar,
 .header {
@@ -331,7 +335,8 @@ a {
 }
 
 .feed,
-.report-body {
+.report-body,
+.bookmark-page {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -767,6 +772,7 @@ a {
 }
 
 .bookmark-list,
+.bookmark-page-list,
 .tag-stat-list,
 .source-list,
 .impact-rows,
@@ -789,6 +795,45 @@ a {
   background: var(--bg-card);
   padding: 8px 10px;
   text-align: left;
+}
+
+.bookmark-card,
+.settings-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  padding: 16px;
+}
+
+.bookmark-card-source,
+.settings-copy {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.bookmark-card-title,
+.settings-title {
+  margin: 4px 0 8px;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 16px;
+}
+
+.bookmark-card-summary {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.bookmark-card-actions,
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .bookmark-item:hover {
@@ -1223,7 +1268,8 @@ a {
   }
 
   .feed,
-  .report-body {
+  .report-body,
+  .bookmark-page {
     overflow: visible;
     padding: 14px;
   }
@@ -1254,8 +1300,15 @@ a {
   }
 
   .card-footer,
-  .origin-meta {
+  .origin-meta,
+  .bookmark-card,
+  .settings-panel {
     flex-wrap: wrap;
+  }
+
+  .bookmark-card,
+  .settings-panel {
+    grid-template-columns: 1fr;
   }
 
   .source-name,

@@ -4,11 +4,13 @@ import type {
   Article,
   ArticleListParams,
   ArticleListResponse,
+  BookmarkResponse,
   DashboardStats,
   FeedCrawlRunResult,
 } from '@/types/article'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
+const LOCAL_USER_STORAGE_KEY = 'ai-daily-local-user'
 
 function buildQuery(params: ArticleListParams): string {
   const query = new URLSearchParams()
@@ -25,7 +27,9 @@ function buildQuery(params: ArticleListParams): string {
 }
 
 export async function fetchArticles(params: ArticleListParams): Promise<ArticleListResponse> {
-  const response = await fetch(`${API_BASE_URL}/articles${buildQuery(params)}`)
+  const response = await fetch(`${API_BASE_URL}/articles${buildQuery(params)}`, {
+    headers: localUserHeaders(),
+  })
 
   if (!response.ok) {
     throw await createApiError(response, `Article API failed with ${response.status}`)
@@ -36,7 +40,9 @@ export async function fetchArticles(params: ArticleListParams): Promise<ArticleL
 }
 
 export async function fetchArticle(id: string): Promise<Article> {
-  const response = await fetch(`${API_BASE_URL}/articles/${encodeURIComponent(id)}`)
+  const response = await fetch(`${API_BASE_URL}/articles/${encodeURIComponent(id)}`, {
+    headers: localUserHeaders(),
+  })
 
   if (!response.ok) {
     throw await createApiError(response, `Article detail API failed with ${response.status}`)
@@ -68,6 +74,64 @@ export async function runTodayFeedCrawl(): Promise<FeedCrawlRunResult> {
 
   const payload = (await response.json()) as ApiResponse<FeedCrawlRunResult>
   return payload.data
+}
+
+export async function fetchBookmarks(): Promise<Article[]> {
+  const response = await fetch(`${API_BASE_URL}/bookmarks`, {
+    headers: localUserHeaders(),
+  })
+
+  if (!response.ok) {
+    throw await createApiError(response, `Bookmark API failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as ApiResponse<Article[]>
+  return payload.data
+}
+
+export async function addBookmark(articleId: string): Promise<BookmarkResponse> {
+  const response = await fetch(`${API_BASE_URL}/articles/${encodeURIComponent(articleId)}/bookmark`, {
+    method: 'POST',
+    headers: localUserHeaders(),
+  })
+
+  if (!response.ok) {
+    throw await createApiError(response, `Bookmark API failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as ApiResponse<BookmarkResponse>
+  return payload.data
+}
+
+export async function deleteBookmark(articleId: string): Promise<BookmarkResponse> {
+  const response = await fetch(`${API_BASE_URL}/articles/${encodeURIComponent(articleId)}/bookmark`, {
+    method: 'DELETE',
+    headers: localUserHeaders(),
+  })
+
+  if (!response.ok) {
+    throw await createApiError(response, `Bookmark API failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as ApiResponse<BookmarkResponse>
+  return payload.data
+}
+
+function localUserHeaders(): HeadersInit {
+  return {
+    'X-AI-Daily-Local-User': getLocalUserId(),
+  }
+}
+
+function getLocalUserId(): string {
+  if (typeof localStorage === 'undefined') return 'local_test_user'
+
+  const existing = localStorage.getItem(LOCAL_USER_STORAGE_KEY)
+  if (existing) return existing
+
+  const generated = `local_${crypto.randomUUID()}`
+  localStorage.setItem(LOCAL_USER_STORAGE_KEY, generated)
+  return generated
 }
 
 async function createApiError(response: Response, fallbackMessage: string): Promise<Error> {

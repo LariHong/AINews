@@ -8,6 +8,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: 'select', article: Article): void
+  (event: 'bookmark', article: Article, isBookmarked: boolean): void
 }>()
 
 function formatTimeAgo(value: string): string {
@@ -51,6 +52,9 @@ function openSource(): void {
       <RouterLink class="btn-ai" :to="{ name: 'report', params: { id: article.id } }" @click.stop>
         Full report
       </RouterLink>
+      <button class="btn-sm" type="button" @click.stop="emit('bookmark', article, !article.isBookmarked)">
+        {{ article.isBookmarked ? 'Saved' : 'Save' }}
+      </button>
       <button class="btn-sm" type="button" @click.stop="openSource">Source</button>
       <span v-if="article.readTimeMinutes" class="read-time">{{ article.readTimeMinutes }} min</span>
       <span class="card-time">{{ formatTimeAgo(article.publishedAt) }}</span>
