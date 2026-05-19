@@ -8,17 +8,31 @@ public static class SeedFeedSources
     [
         new FeedSource
         {
-            Id = "openai-news",
-            Name = "OpenAI News",
-            FeedUrl = "https://openai.com/news/rss.xml",
-            SiteUrl = "https://openai.com/news/"
+            Id = "venturebeat-ai",
+            Name = "VentureBeat AI",
+            FeedUrl = "https://venturebeat.com/category/ai/feed/",
+            SiteUrl = "https://venturebeat.com/category/ai/"
         },
         new FeedSource
         {
-            Id = "huggingface-blog",
-            Name = "Hugging Face Blog",
-            FeedUrl = "https://huggingface.co/blog/feed.xml",
-            SiteUrl = "https://huggingface.co/blog"
+            Id = "infoq-ai-ml-news",
+            Name = "InfoQ AI, ML & Data Engineering",
+            FeedUrl = "https://feed.infoq.com/ai-ml-data-eng/news/",
+            SiteUrl = "https://www.infoq.com/ai-ml-data-eng/"
+        },
+        new FeedSource
+        {
+            Id = "machine-brief",
+            Name = "Machine Brief",
+            FeedUrl = "https://www.machinebrief.com/rss.xml",
+            SiteUrl = "https://www.machinebrief.com/"
+        },
+        new FeedSource
+        {
+            Id = "planet-ai",
+            Name = "Planet AI",
+            FeedUrl = "https://planet-ai.net/rss.xml",
+            SiteUrl = "https://planet-ai.net/"
         }
     ];
 }
