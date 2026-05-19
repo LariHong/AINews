@@ -17,7 +17,9 @@ public sealed class ArticleQueryService
     {
         var allArticles = await _articles.ListAsync(cancellationToken);
         var filtered = ApplyFilters(allArticles, parameters)
+            .Where(article => string.IsNullOrWhiteSpace(article.RejectionReason))
             .OrderByDescending(article => article.PublishedAt)
+            .ThenByDescending(article => article.IngestionScore)
             .ThenBy(article => article.Id)
             .ToList();
 

@@ -18,6 +18,11 @@ public sealed class SeedFeedSourceCatalog : IFeedSourceCatalog
             Name = source.Name,
             FeedUrl = source.FeedUrl,
             SiteUrl = source.SiteUrl,
+            SourceType = source.SourceType,
+            TopicScope = source.TopicScope,
+            DefaultCandidateLimit = source.DefaultCandidateLimit,
+            SourceQualityTier = source.SourceQualityTier,
+            QualityNotes = source.QualityNotes,
             IsEnabled = source.IsEnabled,
             LastCrawledAt = source.LastCrawledAt
         };
