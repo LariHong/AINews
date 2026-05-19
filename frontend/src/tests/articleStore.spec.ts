@@ -80,6 +80,18 @@ vi.mock('@/services/aiSummaryApi', () => ({
     impactScope: 'Developer tools',
     controversy: 'Permissions need care',
     editorView: 'Worth tracking',
+    provider: 'seed',
+    promptVersion: 'quick-summary-seed-v1',
+    generatedAt: '2026-05-12T08:15:00Z',
+  })),
+  generateAiSummary: vi.fn(async () => ({
+    articleId: 'art_02',
+    highlights: ['Generated highlight'],
+    impactScope: 'Research teams',
+    controversy: 'Summary fallback needs care',
+    editorView: 'Generated from summary/source metadata',
+    provider: 'stub',
+    promptVersion: 'quick-summary-v1',
     generatedAt: '2026-05-12T08:15:00Z',
   })),
 }))
@@ -183,6 +195,18 @@ describe('articleStore', () => {
     await store.loadSummary('art_01')
 
     expect(store.byArticleId.art_01.highlights).toContain('A useful highlight')
+    expect(store.byArticleId.art_01.provider).toBe('seed')
     expect(store.errorByArticleId.art_01).toBeUndefined()
+  })
+
+  it('generates a missing AI summary into state', async () => {
+    setActivePinia(createPinia())
+    const store = useAiSummaryStore()
+
+    await store.generateSummary('art_02')
+
+    expect(store.byArticleId.art_02.highlights).toContain('Generated highlight')
+    expect(store.byArticleId.art_02.promptVersion).toBe('quick-summary-v1')
+    expect(store.errorByArticleId.art_02).toBeUndefined()
   })
 })

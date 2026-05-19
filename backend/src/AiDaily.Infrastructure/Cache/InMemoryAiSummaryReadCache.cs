@@ -12,4 +12,7 @@ public sealed class InMemoryAiSummaryReadCache : IAiSummaryReadCache
 
     public void Set(string articleId, AiSummaryDto summary) =>
         _summaries[articleId] = summary;
+
+    public void Remove(string articleId) =>
+        _summaries.TryRemove(articleId, out _);
 }

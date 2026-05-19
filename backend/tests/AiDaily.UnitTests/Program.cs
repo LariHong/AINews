@@ -26,6 +26,9 @@ await ShouldCrawlRssIntoArticles();
 await ShouldGetAiSummaryPreview();
 await ShouldReturnSummaryNotFound();
 await ShouldCacheAiSummaryPreview();
+await ShouldGenerateAiSummaryOnceWhenMissing();
+await ShouldReuseExistingAiSummaryWithoutProviderCall();
+await ShouldForceRegenerateAiSummaryAndRefreshCache();
 await ShouldGenerateAndReadAiReport();
 await ShouldRejectInvalidAiReportDraft();
 await ShouldNormalizeSparseAiReportDraft();
@@ -185,6 +188,8 @@ async Task ShouldGetAiSummaryPreview()
     Assert(result.Status == AiSummaryQueryStatus.Found, "summary query should find seeded summary");
     Assert(result.Summary?.Highlights.Count > 0, "summary preview should include highlights");
     Assert(result.Summary?.ImpactScope.Length > 0, "summary preview should include impact scope");
+    Assert(result.Summary?.Provider == "seed", "summary preview should include provider metadata");
+    Assert(result.Summary?.PromptVersion == "quick-summary-seed-v1", "summary preview should include prompt version");
 }
 
 async Task ShouldReturnSummaryNotFound()
@@ -213,6 +218,60 @@ async Task ShouldCacheAiSummaryPreview()
     Assert(first.Status == AiSummaryQueryStatus.Found, "first summary query should find summary");
     Assert(second.Status == AiSummaryQueryStatus.Found, "second summary query should find cached summary");
     Assert(summaryRepository.ReadCount == 1, "summary repository should only be read once when cache is warm");
+}
+
+async Task ShouldGenerateAiSummaryOnceWhenMissing()
+{
+    var summaryRepository = new EmptySummaryRepository();
+    var generator = new CountingSummaryGenerator();
+    var cache = new InMemoryAiSummaryReadCache();
+    var generationService = new AiSummaryGenerationService(repository, summaryRepository, generator, cache);
+    var queryService = new AiSummaryQueryService(repository, summaryRepository, cache);
+
+    var generated = await generationService.GenerateAsync("art_01JAI002", force: false);
+    var queried = await queryService.GetPreviewAsync("art_01JAI002");
+
+    Assert(generated.Status == AiSummaryGenerationStatus.Ready, "summary generation should be ready for existing articles");
+    Assert(generated.WasGenerated, "missing summary should be generated");
+    Assert(generator.Calls == 1, "missing summary should call the provider once");
+    Assert(summaryRepository.SaveCount == 1, "generated summary should be persisted");
+    Assert(queried.Status == AiSummaryQueryStatus.Found, "generated summary should be readable");
+    Assert(queried.Summary?.Provider == "counting", "generated summary should include provider metadata");
+    Assert(queried.Summary?.PromptVersion == "quick-summary-test-v1", "generated summary should include prompt version");
+    Assert(queried.Summary?.EditorView.Contains("summary/source metadata") == true, "fallback summary should not claim full source analysis");
+}
+
+async Task ShouldReuseExistingAiSummaryWithoutProviderCall()
+{
+    var summaryRepository = new InMemoryAiSummaryRepository();
+    var generator = new CountingSummaryGenerator();
+    var generationService = new AiSummaryGenerationService(
+        repository,
+        summaryRepository,
+        generator,
+        new InMemoryAiSummaryReadCache());
+
+    var result = await generationService.GenerateAsync("art_01JAI001", force: false);
+
+    Assert(result.Status == AiSummaryGenerationStatus.Ready, "existing summary generation request should return ready");
+    Assert(!result.WasGenerated, "existing summary should be reused when force is false");
+    Assert(generator.Calls == 0, "existing summary should not call the provider when force is false");
+}
+
+async Task ShouldForceRegenerateAiSummaryAndRefreshCache()
+{
+    var summaryRepository = new InMemoryAiSummaryRepository();
+    var generator = new CountingSummaryGenerator();
+    var cache = new InMemoryAiSummaryReadCache();
+    var generationService = new AiSummaryGenerationService(repository, summaryRepository, generator, cache);
+    var queryService = new AiSummaryQueryService(repository, summaryRepository, cache);
+
+    var generated = await generationService.GenerateAsync("art_01JAI001", force: true);
+    var queried = await queryService.GetPreviewAsync("art_01JAI001");
+
+    Assert(generated.WasGenerated, "force should regenerate an existing summary");
+    Assert(generator.Calls == 1, "force regeneration should call the provider");
+    Assert(queried.Summary?.Provider == "counting", "cache should contain regenerated summary metadata");
 }
 
 async Task ShouldGenerateAndReadAiReport()
@@ -348,8 +407,51 @@ internal sealed class CountingSummaryRepository : IAiSummaryRepository
             ImpactScope = "Cache validation",
             Controversy = "None",
             EditorView = "Use cached previews for repeated reads.",
+            Provider = "counting",
+            PromptVersion = "quick-summary-test-v1",
             GeneratedAt = DateTimeOffset.Parse("2026-05-12T08:00:00Z")
         });
+    }
+
+    public Task SaveAsync(AiSummary summary, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+internal sealed class EmptySummaryRepository : IAiSummaryRepository
+{
+    private AiSummary? _summary;
+
+    public int SaveCount { get; private set; }
+
+    public Task<AiSummary?> GetByArticleIdAsync(string articleId, CancellationToken cancellationToken) =>
+        Task.FromResult(_summary?.ArticleId == articleId ? _summary : null);
+
+    public Task SaveAsync(AiSummary summary, CancellationToken cancellationToken)
+    {
+        _summary = summary;
+        SaveCount++;
+        return Task.CompletedTask;
+    }
+}
+
+internal sealed class CountingSummaryGenerator : IAiSummaryGenerator
+{
+    public int Calls { get; private set; }
+    public string ProviderName => "counting";
+    public string PromptVersion => "quick-summary-test-v1";
+
+    public Task<AiSummaryDraft> GenerateAsync(Article article, CancellationToken cancellationToken)
+    {
+        Calls++;
+        var isFullContent = article.ContentStatus == "full_content_ready";
+
+        return Task.FromResult(new AiSummaryDraft(
+            ["Generated quick summary"],
+            "Test impact scope",
+            "Test controversy",
+            isFullContent
+                ? "Generated from full imported source text."
+                : "Generated from summary/source metadata without claiming full source analysis."));
     }
 }
 

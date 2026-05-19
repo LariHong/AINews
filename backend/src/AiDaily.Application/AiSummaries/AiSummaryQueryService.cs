@@ -58,6 +58,8 @@ public sealed class AiSummaryQueryService
             summary.ImpactScope,
             summary.Controversy,
             summary.EditorView,
+            summary.Provider,
+            summary.PromptVersion,
             summary.GeneratedAt);
 }
 

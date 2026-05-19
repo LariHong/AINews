@@ -5,7 +5,7 @@ namespace AiDaily.Infrastructure.AI;
 
 public sealed class InMemoryAiSummaryRepository : IAiSummaryRepository
 {
-    private readonly IReadOnlyList<AiSummary> _summaries =
+    private readonly List<AiSummary> _summaries =
     [
         new AiSummary
         {
@@ -20,6 +20,8 @@ public sealed class InMemoryAiSummaryRepository : IAiSummaryRepository
             ImpactScope = "Developer platforms, product teams, and internal automation groups.",
             Controversy = "More capable agents can reduce manual work, but tool permissions and auditability remain pressure points.",
             EditorView = "Worth piloting in a constrained workflow before broad rollout.",
+            Provider = "seed",
+            PromptVersion = "quick-summary-seed-v1",
             GeneratedAt = DateTimeOffset.Parse("2026-05-12T08:15:00Z")
         },
         new AiSummary
@@ -35,10 +37,27 @@ public sealed class InMemoryAiSummaryRepository : IAiSummaryRepository
             ImpactScope = "AI safety, governance, model evaluation, and compliance programs.",
             Controversy = "The industry still lacks agreement on which post-deployment signals should count as reliable safety evidence.",
             EditorView = "High-signal framing for teams building model release checklists.",
+            Provider = "seed",
+            PromptVersion = "quick-summary-seed-v1",
             GeneratedAt = DateTimeOffset.Parse("2026-05-11T22:00:00Z")
         }
     ];
 
     public Task<AiSummary?> GetByArticleIdAsync(string articleId, CancellationToken cancellationToken) =>
         Task.FromResult(_summaries.FirstOrDefault(summary => summary.ArticleId == articleId));
+
+    public Task SaveAsync(AiSummary summary, CancellationToken cancellationToken)
+    {
+        var existingIndex = _summaries.FindIndex(item => item.ArticleId == summary.ArticleId);
+        if (existingIndex >= 0)
+        {
+            _summaries[existingIndex] = summary;
+        }
+        else
+        {
+            _summaries.Add(summary);
+        }
+
+        return Task.CompletedTask;
+    }
 }
