@@ -155,6 +155,12 @@ function toggleBookmark(): void {
   }
 }
 
+function hideArticle(): void {
+  if (article.value) {
+    void articleStore.hideArticle(article.value)
+  }
+}
+
 </script>
 
 <template>
@@ -169,6 +175,7 @@ function toggleBookmark(): void {
         <button class="hdr-btn" type="button" :disabled="!article" @click="toggleBookmark">
           {{ article?.isBookmarked ? 'Saved' : 'Save' }}
         </button>
+        <button class="hdr-btn" type="button" :disabled="!article" @click="hideArticle">Not interested</button>
         <a v-if="article" class="hdr-btn" :href="article.sourceUrl" target="_blank" rel="noreferrer">Source</a>
         <ThemeToggle />
       </div>
@@ -333,6 +340,7 @@ function toggleBookmark(): void {
             <button class="action-btn primary" type="button" @click="toggleBookmark">
               {{ article.isBookmarked ? 'Saved report' : 'Save report' }}
             </button>
+            <button class="action-btn" type="button" @click="hideArticle">Not interested</button>
             <a class="action-btn" :href="article.sourceUrl" target="_blank" rel="noreferrer">Read source</a>
             <RouterLink class="action-btn" :to="{ name: 'dashboard' }">Back to dashboard</RouterLink>
           </div>

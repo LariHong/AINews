@@ -3,6 +3,7 @@ using AiDaily.Application.Articles;
 using AiDaily.Application.Bookmarks;
 using AiDaily.Application.FeedCrawler;
 using AiDaily.Application.Stats;
+using AiDaily.Application.UserPreferences;
 using AiDaily.Domain.Entities;
 using AiDaily.Infrastructure.AI;
 using AiDaily.Infrastructure.Cache;
@@ -13,7 +14,8 @@ using System.Net;
 
 var repository = new InMemoryArticleRepository();
 var bookmarkRepository = new InMemoryBookmarkRepository();
-var service = new ArticleQueryService(repository, bookmarkRepository);
+var hiddenArticleRepository = new InMemoryHiddenArticleRepository();
+var service = new ArticleQueryService(repository, bookmarkRepository, hiddenArticleRepository);
 
 await ShouldFilterByKeyword();
 await ShouldFilterByTagAndPaginate();
@@ -39,6 +41,8 @@ await ShouldRejectInvalidAiReportDraft();
 await ShouldNormalizeSparseAiReportDraft();
 await ShouldBookmarkArticleForLocalUser();
 await ShouldKeepBookmarksScopedToLocalUser();
+await ShouldHideArticleForLocalUser();
+await ShouldRestoreHiddenArticle();
 
 Console.WriteLine("AiDaily.UnitTests passed");
 
@@ -80,7 +84,7 @@ async Task ShouldGetTodayDashboardStats()
 async Task ShouldKeepArticleListQueriesReadOnly()
 {
     var crawler = new CountingFeedCrawler();
-    var queryService = new ArticleQueryService(repository, bookmarkRepository);
+    var queryService = new ArticleQueryService(repository, bookmarkRepository, hiddenArticleRepository);
 
     _ = await queryService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null), "local_test");
 
@@ -254,7 +258,10 @@ async Task ShouldExcludeRejectedArticlesFromArticleList()
         IsBookmarked = false
     }, CancellationToken.None);
 
-    var localService = new ArticleQueryService(localRepository, new InMemoryBookmarkRepository());
+    var localService = new ArticleQueryService(
+        localRepository,
+        new InMemoryBookmarkRepository(),
+        new InMemoryHiddenArticleRepository());
     var result = await localService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null), "local_test");
 
     Assert(result.Items.All(article => article.Id != "rejected_job"), "rejected articles should not appear in the normal article list");
@@ -297,7 +304,10 @@ async Task ShouldUseIngestionQualityAsArticleListTieBreaker()
         IsBookmarked = false
     }, CancellationToken.None);
 
-    var localService = new ArticleQueryService(localRepository, new InMemoryBookmarkRepository());
+    var localService = new ArticleQueryService(
+        localRepository,
+        new InMemoryBookmarkRepository(),
+        new InMemoryHiddenArticleRepository());
     var result = await localService.GetArticlesAsync(new ArticleListParams(null, 2, null, null, null, null), "local_test");
 
     Assert(result.Items[0].Id == "quality_high", "article list should use ingestion quality as a publishedAt tie-breaker");
@@ -485,7 +495,10 @@ async Task ShouldBookmarkArticleForLocalUser()
         localRepository,
         localBookmarks,
         new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
-    var queryService = new ArticleQueryService(localRepository, localBookmarks);
+    var queryService = new ArticleQueryService(
+        localRepository,
+        localBookmarks,
+        new InMemoryHiddenArticleRepository());
 
     var saved = await bookmarkService.AddAsync("local_reader", "art_01JAI001");
     var article = await queryService.GetArticleAsync("art_01JAI001", "local_reader");
@@ -504,7 +517,10 @@ async Task ShouldKeepBookmarksScopedToLocalUser()
         localRepository,
         localBookmarks,
         new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
-    var queryService = new ArticleQueryService(localRepository, localBookmarks);
+    var queryService = new ArticleQueryService(
+        localRepository,
+        localBookmarks,
+        new InMemoryHiddenArticleRepository());
 
     await bookmarkService.AddAsync("local_reader_a", "art_01JAI001");
 
@@ -513,6 +529,50 @@ async Task ShouldKeepBookmarksScopedToLocalUser()
 
     Assert(articleForOtherUser?.IsBookmarked == false, "bookmark state should not leak between local users");
     Assert(otherUserBookmarks.Count == 0, "bookmark list should stay scoped to the local user id");
+}
+
+async Task ShouldHideArticleForLocalUser()
+{
+    var localRepository = new InMemoryArticleRepository();
+    var localHiddenArticles = new InMemoryHiddenArticleRepository();
+    var preferenceService = new UserPreferenceService(
+        localRepository,
+        localHiddenArticles,
+        new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
+    var queryService = new ArticleQueryService(
+        localRepository,
+        new InMemoryBookmarkRepository(),
+        localHiddenArticles);
+
+    var hidden = await preferenceService.HideArticleAsync("local_reader", "art_01JAI001", "not_interested");
+    var result = await queryService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null), "local_reader");
+    var otherUserResult = await queryService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null), "local_other");
+    var hiddenList = await preferenceService.ListHiddenArticlesAsync("local_reader");
+
+    Assert(hidden.Status == HiddenArticleMutationStatus.Ready, "hidden article mutation should succeed for a local user");
+    Assert(result.Items.All(article => article.Id != "art_01JAI001"), "hidden articles should not appear in the current user's normal list");
+    Assert(otherUserResult.Items.Any(article => article.Id == "art_01JAI001"), "hidden state should not affect other local users");
+    Assert(hiddenList.Count == 1 && hiddenList[0].Id == "art_01JAI001", "hidden list should expose restorable articles");
+}
+
+async Task ShouldRestoreHiddenArticle()
+{
+    var localRepository = new InMemoryArticleRepository();
+    var localHiddenArticles = new InMemoryHiddenArticleRepository();
+    var preferenceService = new UserPreferenceService(
+        localRepository,
+        localHiddenArticles,
+        new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
+    var queryService = new ArticleQueryService(
+        localRepository,
+        new InMemoryBookmarkRepository(),
+        localHiddenArticles);
+
+    await preferenceService.HideArticleAsync("local_reader", "art_01JAI001", null);
+    await preferenceService.RestoreArticleAsync("local_reader", "art_01JAI001");
+    var result = await queryService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null), "local_reader");
+
+    Assert(result.Items.Any(article => article.Id == "art_01JAI001"), "restored hidden articles should return to the normal article list");
 }
 
 static void Assert(bool condition, string message)

@@ -3,6 +3,7 @@ using AiDaily.Application.AiSummaries;
 using AiDaily.Application.Bookmarks;
 using AiDaily.Application.FeedCrawler;
 using AiDaily.Application.Stats;
+using AiDaily.Application.UserPreferences;
 using AiDaily.Infrastructure.AI;
 using AiDaily.API.Middleware;
 using AiDaily.Infrastructure.Cache;
@@ -31,6 +32,7 @@ builder.Services.AddSingleton(serviceProvider =>
     serviceProvider.GetRequiredService<IOptions<AiProviderOptions>>().Value);
 builder.Services.AddSingleton<IArticleRepository, InMemoryArticleRepository>();
 builder.Services.AddSingleton<IBookmarkRepository, InMemoryBookmarkRepository>();
+builder.Services.AddSingleton<IHiddenArticleRepository, InMemoryHiddenArticleRepository>();
 builder.Services.AddSingleton<FeedCrawlRunState>();
 builder.Services.AddSingleton<IFeedCrawlStatusReader>(serviceProvider =>
     serviceProvider.GetRequiredService<FeedCrawlRunState>());
@@ -43,6 +45,7 @@ builder.Services.AddSingleton<IAiReportRepository, InMemoryAiReportRepository>()
 builder.Services.AddSingleton<IAiReportGenerationTracker, InMemoryAiReportGenerationTracker>();
 builder.Services.AddScoped<ArticleQueryService>();
 builder.Services.AddScoped<BookmarkService>();
+builder.Services.AddScoped<UserPreferenceService>();
 builder.Services.AddScoped<FeedCrawlRunService>();
 builder.Services.AddScoped<DashboardStatsQueryService>();
 builder.Services.AddScoped<AiSummaryQueryService>();

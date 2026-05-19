@@ -4,8 +4,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useAiSummaryStore } from '@/stores/aiSummaryStore'
 import { useArticleStore } from '@/stores/articleStore'
 import { useBookmarkStore } from '@/stores/bookmarkStore'
+import { usePreferenceStore } from '@/stores/preferenceStore'
 import { useThemeStore } from '@/stores/themeStore'
-import { addBookmark, deleteBookmark, fetchArticles, fetchTodayStats, runTodayFeedCrawl } from '@/services/apiClient'
+import { addBookmark, deleteBookmark, fetchArticles, fetchTodayStats, hideArticle, restoreHiddenArticle, runTodayFeedCrawl } from '@/services/apiClient'
 
 vi.mock('@/services/apiClient', () => ({
   fetchArticles: vi.fn(async () => ({
@@ -99,6 +100,33 @@ vi.mock('@/services/apiClient', () => ({
   deleteBookmark: vi.fn(async (articleId: string) => ({
     articleId,
     isBookmarked: false,
+  })),
+  fetchHiddenArticles: vi.fn(async () => [
+    {
+      id: 'art_hidden',
+      title: 'Hidden AI release',
+      summary: 'A hidden summary',
+      content: 'A hidden summary',
+      contentText: 'A hidden summary',
+      contentStatus: 'summary_fallback',
+      contentExtractedAt: null,
+      sourceUrl: 'https://example.com/hidden',
+      sourceName: 'Example',
+      sourceLogoUrl: null,
+      tags: ['model'],
+      publishedAt: '2026-05-12T06:00:00Z',
+      hasAiSummary: true,
+      isBookmarked: false,
+      readTimeMinutes: 5,
+    },
+  ]),
+  hideArticle: vi.fn(async (articleId: string) => ({
+    articleId,
+    isHidden: true,
+  })),
+  restoreHiddenArticle: vi.fn(async (articleId: string) => ({
+    articleId,
+    isHidden: false,
   })),
 }))
 
@@ -255,6 +283,24 @@ describe('articleStore', () => {
     expect(store.articles[0].isBookmarked).toBe(false)
   })
 
+  it('hides an article optimistically and can undo it', async () => {
+    setActivePinia(createPinia())
+    const store = useArticleStore()
+
+    await store.loadArticles(true)
+    await store.hideArticle(store.articles[0])
+
+    expect(hideArticle).toHaveBeenCalledWith('art_01')
+    expect(store.articles).toHaveLength(0)
+    expect(store.recentlyHiddenArticle?.id).toBe('art_01')
+
+    await store.undoHideArticle()
+
+    expect(restoreHiddenArticle).toHaveBeenCalledWith('art_01')
+    expect(store.articles[0].id).toBe('art_01')
+    expect(store.recentlyHiddenArticle).toBeNull()
+  })
+
   it('loads bookmark list into state', async () => {
     setActivePinia(createPinia())
     const store = useBookmarkStore()
@@ -263,6 +309,21 @@ describe('articleStore', () => {
 
     expect(store.articles).toHaveLength(1)
     expect(store.articles[0].isBookmarked).toBe(true)
+  })
+
+  it('loads and restores hidden article preferences', async () => {
+    setActivePinia(createPinia())
+    const store = usePreferenceStore()
+
+    await store.loadHiddenArticles()
+
+    expect(store.hiddenArticles).toHaveLength(1)
+    expect(store.hiddenArticles[0].id).toBe('art_hidden')
+
+    await store.restoreArticle('art_hidden')
+
+    expect(restoreHiddenArticle).toHaveBeenCalledWith('art_hidden')
+    expect(store.hiddenArticles).toHaveLength(0)
   })
 
   it('persists theme preference in the theme store', () => {

@@ -1,5 +1,6 @@
 using AiDaily.Domain.Entities;
 using AiDaily.Application.Bookmarks;
+using AiDaily.Application.UserPreferences;
 
 namespace AiDaily.Application.Articles;
 
@@ -7,11 +8,16 @@ public sealed class ArticleQueryService
 {
     private readonly IArticleRepository _articles;
     private readonly IBookmarkRepository _bookmarks;
+    private readonly IHiddenArticleRepository _hiddenArticles;
 
-    public ArticleQueryService(IArticleRepository articles, IBookmarkRepository bookmarks)
+    public ArticleQueryService(
+        IArticleRepository articles,
+        IBookmarkRepository bookmarks,
+        IHiddenArticleRepository hiddenArticles)
     {
         _articles = articles;
         _bookmarks = bookmarks;
+        _hiddenArticles = hiddenArticles;
     }
 
     public async Task<PaginatedResult<ArticleDto>> GetArticlesAsync(
@@ -21,8 +27,10 @@ public sealed class ArticleQueryService
     {
         var allArticles = await _articles.ListAsync(cancellationToken);
         var bookmarkIds = await GetBookmarkIdsAsync(userId, cancellationToken);
+        var hiddenArticleIds = await GetHiddenArticleIdsAsync(userId, cancellationToken);
         var filtered = ApplyFilters(allArticles, parameters)
             .Where(article => string.IsNullOrWhiteSpace(article.RejectionReason))
+            .Where(article => !hiddenArticleIds.Contains(article.Id))
             .OrderByDescending(article => article.PublishedAt)
             .ThenByDescending(article => article.IngestionScore)
             .ThenBy(article => article.Id)
@@ -118,6 +126,18 @@ public sealed class ArticleQueryService
         }
 
         return await _bookmarks.ListArticleIdsAsync(userId, cancellationToken);
+    }
+
+    private async Task<IReadOnlySet<string>> GetHiddenArticleIdsAsync(
+        string userId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return new HashSet<string>();
+        }
+
+        return await _hiddenArticles.ListArticleIdsAsync(userId, cancellationToken);
     }
 
     private static string EncodeCursor(int index) =>
