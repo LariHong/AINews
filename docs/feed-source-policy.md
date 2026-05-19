@@ -60,3 +60,14 @@ Persist quality metadata with accepted articles so filtering can be tuned later:
 - `rejectionReason` when a candidate or imported article should be hidden from the normal feed
 
 The default reader API should exclude rejected articles. Debug or admin views can expose rejected candidates later, but that is outside the current slice.
+
+## Current MVP Gap
+
+The current crawler applies the deterministic pre-filter and logs rejected candidates, but it does not persist rejected candidate records or a long-lived rejection audit trail.
+
+Next implementation work must choose one of these paths:
+
+- Persist rejected candidate metadata in a dedicated audit table or equivalent store so source quality can be tuned over time.
+- Or explicitly keep rejection handling as logs-only MVP behavior and update this policy to say long-term rejected-candidate analysis is deferred.
+
+Accepted articles should continue to store `ingestionScore`, `matchedKeywords`, and `sourceQualityTier`. Rejected candidates should not silently disappear from the planning model; they need either persistent audit data or a documented deferral.
