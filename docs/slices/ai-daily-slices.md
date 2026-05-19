@@ -22,11 +22,13 @@
 - 共用契約：API response envelope、pagination shape、article DTOs、AI summary/report DTOs、error codes。
 - 測試：每個交付切片都要有聚焦的後端 unit/integration tests，以及前端 store/component tests。
 
-## 第一個切片
+## 歷史第一個切片，不是下一步
 
 S1. 可閱讀的文章列表
 
-選它作為第一個切片，是因為它能證明產品最核心的使用者價值：使用者打開 app 後，可以快速掃描近期 AI 文章。它也會建立後續切片要沿用的 repo 結構、API 慣例、資料庫模型與前端資料流。
+S1 是專案起步時的第一個切片，因為它能證明產品最核心的使用者價值：使用者打開 app 後，可以快速掃描近期 AI 文章。它也建立了後續切片沿用的 repo 結構、API 慣例、資料模型與前端資料流。
+
+目前不要從 S1 重新開始。新的 implementation 入口以 `Prompt-Ready Next Work` 的 `Recommended Order` 為準。
 
 ## 目前切片狀態
 
@@ -50,12 +52,185 @@ Status legend:
 
 ## Current Contract Deviations
 
-- AI provider: spec target 是 Anthropic/Claude；目前 MVP 可用 Gemini 或 Stub。後續需保持 `IAiReportGenerator` 介面穩定，並在 S4-1 決定是否切回 Claude 或文件化 Gemini MVP。
-- SSE events: spec target 是 `start/chunk/field_done/done/error`；目前實作是 `started/status/report/completed/error`。S4-1 必須選擇「對齊 spec」或「版本化 MVP contract」。
+- AI provider: spec target 是 Anthropic/Claude；目前 MVP 可用 Gemini 或 Stub。S4-1 預設先文件化 Gemini/Stub MVP deviation，並保持 `IAiReportGenerator` 介面穩定；若要切回 Claude，需由使用者明確指定。
+- SSE events: spec target 是 `start/chunk/field_done/done/error`；目前實作是 `started/status/report/completed/error`。S4-1 預設版本化目前 MVP contract；若要改成 spec shape，需先停下來問使用者。
 - Persistence: spec target 是 PostgreSQL 與 Redis；目前 core repositories/cache 多為 in-memory，屬於 volatile MVP。
-- Rate limit/auth: spec 有 AI/API rate limit 與驗證要求；目前 AI generate 與 feed crawl 寫入入口尚未完成 rate limit/auth guard。
+- Rate limit/auth: spec 有 AI/API rate limit 與驗證要求；S4-1 只處理 AI generate rate limit/auth guard。Feed crawl POST guard 屬於獨立 API write guard follow-up，不放進 S4-1。
 - Pagination: 文件稱 cursor pagination；目前 cursor 是 base64 offset index，不是 `(publishedAt, ingestionScore, id)` 類 keyset cursor。
 - Feed rejected metadata: policy 期望保留 rejected metadata；目前 crawler 對 rejected candidates 只 log 後略過。
+
+## Prompt-Ready Next Work
+
+這一段是給使用者或下一個 agent 直接選任務用的 canonical 入口。若不確定要做什麼，優先照 `Recommended Order` 從上往下做；每次只做一個 item，不要把多個 slice 混在同一輪。
+
+若本段和下方某個 slice 的 `Next actions` 或最後的 handoff YAML 看起來衝突，以本段為準；下方 slice 內容是 reference 與 owner context。
+
+### Recommended Order
+
+| 順序 | Prompt target | Owner slice | Branch suggestion | 做完代表什麼 |
+| --- | --- | --- | --- | --- |
+| 1 | AI report contract hardening | `S4-1` | `feature/s4-1-report-contract-hardening` | SSE/provider/rate-limit contract 穩定，昂貴 AI 入口不再裸奔 |
+| 2 | Article/feed persistence baseline | `P1a` | `feature/p1a-article-feed-persistence` | feed articles 與 feed metadata 重啟後仍存在 |
+| 3 | Quick summary state sync | `S3-1` | `feature/s3-1-summary-state-sync` | 生成 summary 後 article badge/stats/cache 狀態一致 |
+| 4 | Rejected metadata decision | `S2-3a` | `feature/s2-3a-rejected-metadata-decision` | rejected candidates 不再只是在計畫裡消失 |
+| 5 | Reader list cursor hardening | `S1` follow-up | `feature/s1-article-list-cursor-hardening` | hidden/filter/new articles 下 pagination 不漏不重 |
+
+### Copy-Paste Prompts
+
+#### 1. S4-1 AI report contract hardening
+
+```text
+請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S4-1，實作 AI report provider、SSE contract、rate limit 與 spec 偏差回補。
+
+只做 S4-1，不要做 persistence baseline、quick summary、feed quality、feed crawl POST guard、bookmark/hidden 功能。
+
+開始前先回報 git_flow_classification，預設：
+- base_branch: develop
+- branch_type: feature
+- suggested_branch_name: feature/s4-1-report-contract-hardening
+
+成功標準：
+- SSE contract 預設採「版本化目前 MVP shape」：`started/status/report/completed/error`，並寫成明確 API/SSE contract。若你認為必須改成 spec shape `start/chunk/field_done/done/error`，先停下來問使用者，不要自行拍板。
+- AI generation 有 per-user/per-article 或等價最小 rate limit。
+- 超過限制回文件化錯誤，例如 AI_RATE_LIMIT_EXCEEDED。
+- Provider error 不洩漏 API key、raw provider URL 或 secret。
+- Prompt content 有 deterministic length/token budget 上限。
+- 補後端 HTTP/SSE integration tests，以及前端 SSE parser 或 composable tests。
+
+validation_commands:
+- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+- npm test
+- npm run build
+
+如果 npm 指令在本機工具層無法執行，必須回報未驗證前端，不可宣稱完成。
+```
+
+#### 2. P1a article/feed persistence baseline
+
+```text
+請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 P1a，實作 Article/feed persistence baseline。
+
+只做 P1a，不要同時改 SSE contract、rate limit、AI summary/report persistence、bookmark/hidden persistence、auth UI 或 CI/CD。
+
+開始前先回報 git_flow_classification，預設：
+- base_branch: develop
+- branch_type: feature
+- suggested_branch_name: feature/p1a-article-feed-persistence
+
+成功標準：
+- EF Core AiDailyDbContext 不再只是 placeholder。
+- Article、FeedSource 或等價 feed metadata 有 PostgreSQL mapping。
+- Article source identity 或 SourceUrl 有 unique constraint，避免 RSS sync 重複寫入。
+- Content status、content text、contentExtractedAt、ingestionScore、matchedKeywords、sourceQualityTier 有可保存欄位或明確 deferral。
+- API 可用設定選擇 DB article/feed repository；in-memory adapter 保留給 tests/dev fallback。
+- API 重啟後仍可讀到 feed articles 與 feed metadata。
+- 補 article/feed repository persistence tests 或 lightweight integration tests。
+
+validation_commands:
+- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+- dotnet build backend/AiDaily.sln
+
+如果 build 因既有 obj/bin 檔案鎖定失敗，必須回報鎖定錯誤與未完成的驗證，不要清除檔案或 reset。
+```
+
+#### 3. S3-1 quick summary state sync
+
+```text
+請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S3-1，修正 AI quick summary state sync 與 cache correctness。
+
+只做 S3-1，不要同時做 deep report SSE、PostgreSQL persistence baseline、Redis adapter 或 feed crawler。
+
+開始前先回報 git_flow_classification，預設：
+- base_branch: develop
+- branch_type: feature
+- suggested_branch_name: feature/s3-1-summary-state-sync
+
+成功標準：
+- 生成 summary 後，article list/detail 的 hasAiSummary 與 Dashboard AI Briefs count 能反映新狀態。
+- quick summary generation 有並行防重或最小 tracker。
+- provider failure 有 domain-level error mapping，不只落成 500。
+- forced regeneration 成功保存後才替換舊 cache。
+- 補 AiSummaryPanel/store/service tests，覆蓋 empty、generate、error、refresh。
+
+validation_commands:
+- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+- npm test
+
+如果 npm 指令在本機工具層無法執行，必須回報未驗證前端。
+```
+
+#### 4. S2-3a rejected metadata decision
+
+```text
+請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S2-3a 與 docs/feed-source-policy.md，處理 rejected candidate metadata decision。
+
+只做 S2-3a 的 rejected candidate 決策，不要重做 broader feed quality rules、candidateLimit、sorting、整個 persistence baseline 或 admin UI。
+
+開始前先回報 git_flow_classification，預設：
+- base_branch: develop
+- branch_type: feature
+- suggested_branch_name: feature/s2-3a-rejected-metadata-decision
+
+成功標準：
+- 明確決定 rejected candidates 要保存 audit metadata，或文件化 logs-only MVP deferral。
+- 若保存：新增 rejected candidate persistence / query test。
+- 若 deferral：更新 feed-source-policy 與 slice 文件，說明目前不能做長期 source quality analysis。
+- 一般 reader feed 仍排除 rejected articles。
+
+validation_commands:
+- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+```
+
+#### 5. S1 reader list cursor hardening
+
+```text
+請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S1 current gaps，修正 reader list cursor pagination。
+
+只做 article list cursor hardening，不要同時做 persistence baseline、feed crawler 或 AI summary。
+
+開始前先回報 git_flow_classification，預設：
+- base_branch: develop
+- branch_type: feature
+- suggested_branch_name: feature/s1-article-list-cursor-hardening
+
+成功標準：
+- cursor 從 base64 offset index 改成穩定 keyset cursor，例如 publishedAt、ingestionScore、id。
+- hidden/filter/new article 變動下不漏資料、不重複資料。
+- API contract 文件和 tests 反映新 cursor shape。
+- 補後端 query tests；若前端需要調整，補 store tests。
+
+prerequisite:
+- 若 ingestionScore 尚未持久化，仍可使用目前查詢可取得的 stable ordering 欄位；不要因此擴大到 persistence baseline。
+
+validation_commands:
+- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+- npm test
+```
+
+### Do Not Start From These Yet
+
+- 不要把 `S1-1` 當下一個從零 implementation slice；stats API 和 Dashboard stats row 已部分完成。它現在適合做驗收、補測與 `hasAiSummary` source-of-truth 修正。
+- 不要直接做 CI/CD；目前 persistence、rate limit、SSE contract 還不穩，CI/CD 會先把不穩的 contract 固化。
+- 不要一次做 S4-1 + P1a + S3-1。這些會互相碰到 AI/report/summary 狀態，但 owner slice 不同，應分開 commit。
+
+### CI/CD Readiness Gate
+
+不要把 CI/CD 當下一個 slice。重新啟動 CI/CD 學習或 pipeline 建置前，至少要有：
+
+- `S4-1` 完成，AI report SSE/rate-limit/provider error contract 有測試。
+- `P1a` 完成，Article/feed persistence baseline 有測試。
+- `S3-1` 完成，quick summary state sync/cache correctness 有測試。
+- `git log` 中至少有上述 docs/feature/test commits，可讓 AI 從 commit history 學到「rebaseline -> contract hardening -> persistence -> tests」的順序。
+
+### Evidence / Verification Index
+
+| Area | 主要證據 | 最窄驗證 |
+| --- | --- | --- |
+| S4-1 report contract | `backend/src/AiDaily.Application/AiSummaries`、`backend/src/AiDaily.Infrastructure/AI`、`frontend/src/composables/useAiReportStream.ts` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
+| P1a article/feed persistence | `backend/src/AiDaily.Infrastructure/Persistence`、`backend/src/AiDaily.Infrastructure/Repositories`、`backend/src/AiDaily.Domain/Entities` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`dotnet build backend/AiDaily.sln` |
+| S3-1 summary state sync | `backend/src/AiDaily.Application/AiSummaries`、`frontend/src/components/ai/AiSummaryPanel.vue`、`frontend/src/stores/aiSummaryStore.ts` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
+| S2-3a rejected metadata | `backend/src/AiDaily.Infrastructure/FeedCrawler`、`docs/feed-source-policy.md` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
+| S1 cursor hardening | `backend/src/AiDaily.Application/Articles`、`frontend/src/stores/articleStore.ts` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
 
 ## 切片
 
@@ -242,7 +417,7 @@ Status legend:
 
 #### Next actions
 
-- 在 S4-1 先決定並文件化 SSE contract：採 spec shape，或版本化目前 MVP shape。
+- 在 S4-1 版本化目前 MVP SSE contract：`started/status/report/completed/error`。若要改成 spec shape，先請使用者決策。
 - 加入 AI generation rate limit，超過時回 `AI_RATE_LIMIT_EXCEEDED` 或文件化等價錯誤。
 - 在 prompt builder 或 content extraction 加 deterministic truncation 與 metadata。
 - 補 HTTP/SSE integration tests 與前端 SSE parser tests。
@@ -251,7 +426,7 @@ Status legend:
 
 - planning_mode: `apply_to_existing_plan`
 - reference_plan_usage: 根據 `AI-Daily-Spec.md` 推導 reference coverage，但 reference plan 不保留；只把差異整理回本 artifact。
-- existing_plan_summary: 目前 S1-S4 已有基底或已進入實作脈絡；S5 尚未開始。
+- existing_plan_summary: 目前 S1-S5-1 都已有不同程度的 MVP 基底；S4 是主要 contract risk，P1a 是下一個資料生命週期缺口。
 - matched_coverage:
   - S1 已覆蓋文章列表、filter、pagination 與 Dashboard UI。
   - S1-1 stats API 與 Dashboard stats row 已部分完成。
@@ -260,17 +435,17 @@ Status legend:
   - S4 已部分完成 AI deep report generation、Gemini/Stub provider、MVP SSE 與 provider interface。
   - S5/S5-1 已部分完成 bookmark、theme、local-user hidden articles 與 settings/undo UI。
 - missing_or_underdefined:
-  - 全域缺 persistence baseline：Article、AiSummary、AiReport、Bookmark、HiddenArticle 與 feed metadata 仍是 in-memory；recommended_action: `add_slice` -> `P1`。
+  - 全域缺 persistence baseline：Article、AiSummary、AiReport、Bookmark、HiddenArticle 與 feed metadata 仍是 in-memory；recommended_action: `add_slice` -> `P1 umbrella`，並先執行 `P1a`。
   - S1 cursor 仍是 offset MVP，不符合穩定 cursor acceptance；recommended_action: `add_acceptance` -> `S1` 或後續 article list hardening。
   - S1-1 stats API 已存在，但 AI brief count 依賴 article flag，生成 summary 後可能不同步；recommended_action: `add_acceptance` -> `S1-1` / `S3-1`。
   - S2 rejected candidates 只 log 不保存，與 feed-source policy 的 rejected metadata 方向不一致；recommended_action: `add_acceptance` -> `S2-3`。
   - S2 reader detail/report 對 hidden/rejected direct access policy 未定；recommended_action: `add_acceptance` -> `S2` / `S5-1`。
   - S3 quick summary generation 缺並行防重、provider error mapping 與 generated summary 對 article projection 的同步；recommended_action: `add_acceptance` -> `S3-1`。
-  - S4 缺 provider/spec deviation 決策、SSE event contract 對齊、rate limit、prompt content length limit、secret-safe provider errors；recommended_action: `add_slice` -> `S4-1`。
+  - S4 缺 provider/spec deviation 文件化、SSE MVP contract 版本化、rate limit、prompt content length limit、secret-safe provider errors；recommended_action: `add_slice` -> `S4-1`。
   - 前端缺 SSE parser/race/error state component tests；recommended_action: `add_acceptance` -> `S4-1` 與前端 hardening。
 - intentional_deviation:
   - MVP 可用 Gemini/Stub 作 provider，但 spec target 是 Anthropic/Claude；document_or_fix: `document MVP deviation in S4-1, keep interface stable for later fix`。
-  - MVP SSE 可暫用 `started/status/report/completed/error`，但 spec target 是 `start/chunk/field_done/done/error`；document_or_fix: `S4-1 must choose versioned MVP contract or fix to spec shape`。
+  - MVP SSE 預設版本化 `started/status/report/completed/error`；若要改成 spec target `start/chunk/field_done/done/error`，需使用者明確決策。
   - MVP persistence/cache 可暫用 in-memory adapter，但文件與狀態表必須標成 volatile MVP；document_or_fix: `P1 must define the PostgreSQL persistence baseline before production claims`。
 
 ## S1-S4 Backfill / Spec Reconciliation
@@ -444,8 +619,8 @@ git_flow_classification:
 
 #### Next actions
 
-- 在 S4-1 或 API hardening 中保護 feed crawl POST，至少限制 production 下任意觸發。
-- 在 persistence baseline 後，讓 explicit sync 寫入 DB 並保留 crawl run metadata。
+- 另開 API write guard follow-up 保護 feed crawl POST，至少限制 production 下任意觸發；不要併入 S4-1。
+- 在 P1a 後，讓 explicit sync 寫入 DB 並保留 crawl run metadata。
 
 ### S2-3. Feed source quality 與候選文章篩選回補
 
@@ -499,17 +674,21 @@ git_flow_classification:
 - 決定 rejected candidates 要保存成 audit records，或將 policy 明確降級為 logs-only MVP。
 - 若選擇保存，新增 rejected candidate persistence 與查詢測試；若不保存，文件需說明目前不能做長期 source quality analysis。
 
-### S3-1. AI quick summary 生成、持久化與快取回補
+#### S2-3a. Rejected candidate metadata decision
+
+S2-3 是較大的 feed quality umbrella；下一個可執行工作只做 S2-3a。S2-3a 的範圍是決定 rejected candidates 是否保存 audit metadata，或明確把目前 runtime 降級為 logs-only MVP。不要在這一輪重做 candidate limit、sorting、source selection、admin UI 或整個 persistence baseline。
+
+### S3-1. AI quick summary state sync 與 cache correctness
 
 - backfills: `S3. AI 摘要預覽`
-- source_gap: Spec 要右側 quick summary 由 AI 產生並永久快取；目前 S3 主要是讀取/展示 quick summary，缺 prompt version、provider metadata、持久化與 cache policy。
-- why_now: S4 已接 provider 後，quick summary 不應長期停留在 in-memory seed/read-only 狀態，否則 Dashboard 和 report 的 AI 狀態會分裂。
+- source_gap: Spec 要右側 quick summary 由 AI 產生並永久快取；目前 S3 已有 read/generate/cache，但生成後 article projection、Dashboard stats 與 cache replacement 語意仍可能不同步。
+- why_now: S4 已接 provider 後，quick summary 不應讓 Dashboard、article detail 與 cache 各自判斷狀態，否則使用者會看到「已生成但列表仍顯示沒有 summary」的分裂狀態。
 - git_flow_classification:
   ```yaml
   base_branch: develop
   branch_type: feature
-  suggested_branch_name: feature/s3-1-ai-summary-persistence
-  reason: "Adds AI quick summary generation, persistence, and cache behavior; this is planned feature/backfill work."
+  suggested_branch_name: feature/s3-1-summary-state-sync
+  reason: "Hardens quick summary state synchronization and cache replacement behavior; this is planned feature/backfill work."
   ```
 - user_flow: 使用者在 article card/detail 開啟 AI summary panel；若 summary 已存在則快速讀取，若不存在則可由後端生成或回可辨識 empty state。
 - files_or_areas:
@@ -521,16 +700,19 @@ git_flow_classification:
   - `frontend/src/components/ai/AiSummaryPanel.vue`
   - `frontend/src/stores/aiSummaryStore.ts`
 - acceptance:
-  - AI quick summary persistence 記錄 articleId、highlights、impactScope、controversy、editorView、provider、promptVersion、generatedAt。
+  - 生成 summary 後，article list/detail 的 `hasAiSummary` 與 Dashboard AI Briefs count 能反映新狀態。
   - 未 forced regeneration 時，同一篇文章不重複呼叫 provider。
-  - cached reads 需避免不必要的 DB/provider calls；Redis 可為 optional adapter，但 cache key 與失效條件需文件化。
+  - `force=true` 成功生成並保存後才替換舊 cache；provider failure 不應讓舊 summary 短暫消失。
+  - cached reads 需避免不必要的 repository/provider calls；cache key 與失效條件需文件化。
   - 若 article content 尚未完成，生成可 fallback summary/source metadata，並在 prompt/結果中避免宣稱看過完整原文。
-  - DTO 與 spec 差異需標記，例如 `highlights` 是 list 還是 spec 範例中的 string。
+  - provider failure 有 domain-level error mapping，不只落成 500。
 - not_included:
   - Deep report streaming。
+  - PostgreSQL persistence baseline；`AiSummary` DB mapping 屬於 P1 的後續子切片，不放進 S3-1。
+  - Redis production cache adapter。
   - Prompt A/B testing UI。
   - 多 provider routing UI。
-- reason_first: S3 是 S4 的輕量 AI 入口；把 quick summary 的生成/持久化補齊，可避免所有 AI 價值都壓到 deep report。
+- reason_first: S3 是 S4 的輕量 AI 入口；先把狀態同步與 cache correctness 補齊，下一步 P1 才能有清楚的資料語意可持久化。
 
 #### Current implementation
 
@@ -574,12 +756,13 @@ git_flow_classification:
   - Provider choice 文件化為 MVP 偏差：spec target 是 Anthropic/Claude，MVP 可用 Gemini/Stub；document_or_fix: 先文件化為 MVP deviation，並透過 application interface 隔離，後續切回 Claude 或多 provider 不改前端 contract。
   - API key 只能由後端安全設定讀取，不得寫入 repo，不得暴露給前端；錯誤訊息不得包含 key 或 provider raw URL。
   - AI report 必須通過後端 schema/enum/array length/score range 驗證；可修復的缺欄位需 normalizer 補齊，不能修復則回 `AI_REPORT_INVALID_FORMAT`。
-  - SSE event shape 需明確決策：採 spec `start/chunk/field_done/done/error`，或將 MVP `started/status/report/completed/error` 文件化為版本化 contract；document_or_fix 必須寫入 API/SSE contract。
+  - SSE event shape 預設將 MVP `started/status/report/completed/error` 文件化為版本化 contract；若要改成 spec `start/chunk/field_done/done/error`，需先請使用者決策。
   - AI generation 有最小 rate limiting；超過限制回 `AI_RATE_LIMIT_EXCEEDED` 或等價文件化錯誤。
   - 在 S2-1 未完成前，S4 只能宣稱使用 summary/source metadata fallback，不宣稱 full-content deep report。
 - not_included:
   - Prompt A/B testing UI。
   - Exporting reports。
+  - Feed crawl POST guard；另開 API write guard follow-up。
   - 完整 Anthropic/OpenAI/provider switching UI。
 - reason_first: S4 是成本、安全、contract 漂移最容易放大的地方；這個回補項讓已開始的 provider 串接可被後續 slice 穩定承接。
 
@@ -590,7 +773,7 @@ git_flow_classification:
 
 #### Known gaps
 
-- AI generate 與 feed crawl 寫入 API 仍缺 auth/rate-limit guard。
+- AI generate 寫入 API 仍缺 auth/rate-limit guard；feed crawl POST guard 屬於獨立 API write guard follow-up。
 - SSE event shape 尚未穩定成 public contract。
 - Prompt content 未限制長度，可能造成 provider cost、latency 或 request failure。
 - 缺 HTTP/SSE integration tests，無法保證 response headers、event names 與 error event shape。
@@ -706,7 +889,7 @@ git_flow_classification:
 - 決定 hidden detail/report direct access policy：404、hidden-state page，或 admin/debug bypass。
 - 在 keyset cursor 修正前，文件化 hidden + pagination 仍是 MVP risk。
 
-### P1. Persistence baseline for reader and AI state
+### P1. Persistence baseline umbrella
 
 - status: planned
 - backfills: `S1`、`S2`、`S3`、`S4`、`S5`、`S5-1`
@@ -744,6 +927,26 @@ git_flow_classification:
   - Cloud deployment / CI/CD pipeline。
 - reason_first: 這不是新增產品功能，而是把已存在 MVP flows 從 volatile demo 推進到可被後續 slice、測試與 CI/CD 信任的資料基線。
 
+P1 是 umbrella，不適合作為單次 build-and-learn-loop 任務直接執行。請先做 P1a；後續再拆 P1b/P1c，避免一次同時碰 Article、AI artifacts、bookmark/hidden preferences。
+
+#### P1a. Article/feed persistence baseline
+
+- owner_scope: Article、FeedSource、feed metadata、content extraction metadata。
+- suggested_branch_name: `feature/p1a-article-feed-persistence`
+- user_flow: 使用者同步 feed 後，API 重啟仍能讀到同一批 feed articles 與 feed metadata。
+- acceptance:
+  - `AiDailyDbContext` 不再只是 placeholder，至少能 mapping Article 與 FeedSource 或等價 feed metadata。
+  - `Article.SourceUrl` 或 stable source identity 有 unique constraint，避免 RSS sync 重複寫入。
+  - content status、content text、contentExtractedAt、ingestionScore、matchedKeywords、sourceQualityTier 有可保存欄位或明確 deferral。
+  - API 可透過設定選擇 DB article/feed repository；in-memory adapter 保留給 tests/dev fallback。
+  - 重啟 API 後，feed articles 與 feed metadata 仍可讀取。
+  - 至少包含 article/feed repository persistence tests 或 lightweight integration tests。
+- not_included:
+  - AI summary/report persistence；後續可拆 P1b。
+  - Bookmark/HiddenArticle persistence；後續可拆 P1c。
+  - Redis production cache adapter。
+  - Auth UI、CI/CD pipeline、admin feed-source management UI。
+
 ## 延後處理
 
 - Report 的 PDF export。
@@ -762,15 +965,17 @@ next_skill: build-and-learn-loop
 artifact_path: docs/slices/ai-daily-slices.md
 first_slice: S4-1. Deep report provider、SSE contract、rate limit 與 spec 偏差回補
 prerequisite:
-  - docs re-baseline completed
+  - Prompt-Ready Next Work is present and current
+  - worktree target repo is confirmed before branching
 why_not_s1_1:
   - S1-1 stats API 與 Dashboard stats row 已部分完成，不應再當成從零 implementation slice。
   - S1-1 下一步應是驗收、補測與 AI summary count source-of-truth 修正。
 next_order:
   - S4-1. Deep report provider、SSE contract、rate limit 與 spec 偏差回補
-  - P1. Persistence baseline for reader and AI state
-  - S3-1. AI quick summary 生成、持久化與快取回補
-  - S2-3. Feed source quality 與候選文章篩選回補
+  - P1a. Article/feed persistence baseline
+  - S3-1. AI quick summary state sync 與 cache correctness
+  - S2-3a. Rejected candidate metadata decision
+  - S1 follow-up. Reader list cursor hardening
 s5_handoff:
   execution_rule: "Use the same feature branch, but run one slice per build-and-learn-loop pass; do not merge S5 and S5-1 into one implementation pass."
   shared_branch: feature/s5-personalization
