@@ -65,6 +65,11 @@ export interface FeedCrawlRunResult {
   completedAt: string
 }
 
+export interface BookmarkResponse {
+  articleId: string
+  isBookmarked: boolean
+}
+
 export interface ApiResponse<T> {
   success: boolean
   data: T

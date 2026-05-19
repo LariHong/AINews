@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { fetchArticle, fetchArticles, fetchTodayStats, runTodayFeedCrawl } from '@/services/apiClient'
+import { addBookmark, deleteBookmark, fetchArticle, fetchArticles, fetchTodayStats, runTodayFeedCrawl } from '@/services/apiClient'
 import type { Article, ArticleListParams, DashboardStats, FeedSyncViewState } from '@/types/article'
 
 export const useArticleStore = defineStore('articleStore', {
@@ -119,6 +119,29 @@ export const useArticleStore = defineStore('articleStore', {
         this.errorMessage = error instanceof Error ? error.message : 'Unable to load article'
       } finally {
         this.isDetailLoading = false
+      }
+    },
+    async setBookmark(article: Article, isBookmarked: boolean): Promise<void> {
+      const previous = article.isBookmarked
+      this.patchBookmarkState(article.id, isBookmarked)
+
+      try {
+        if (isBookmarked) {
+          await addBookmark(article.id)
+        } else {
+          await deleteBookmark(article.id)
+        }
+      } catch (error) {
+        this.patchBookmarkState(article.id, previous)
+        this.errorMessage = error instanceof Error ? error.message : 'Unable to update bookmark'
+      }
+    },
+    patchBookmarkState(articleId: string, isBookmarked: boolean): void {
+      this.articles = this.articles.map((item) =>
+        item.id === articleId ? { ...item, isBookmarked } : item)
+
+      if (this.selectedArticle?.id === articleId) {
+        this.selectedArticle = { ...this.selectedArticle, isBookmarked }
       }
     },
     updateFeedSyncViewState(): void {

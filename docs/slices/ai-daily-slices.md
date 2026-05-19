@@ -38,7 +38,7 @@ S1. 可閱讀的文章列表
 | S2 article detail API / RSS 匯入 | 尚未實作 | `GET /api/v1/articles/{id}`、FeedCrawler、RSS persistence 尚待後續切片 |
 | S3/S4 AI summary/report pipeline | 尚未實作 | AI API key、AI provider service、SSE streaming、summary/report persistence 尚待後續切片 |
 | S1-S4 backfill / spec reconciliation | 尚未實作 | 依 `AI-Daily-Spec.md` 回補目前 S1-S4 基底缺口，放在 S4 後、S5 前逐項處理 |
-| S5 bookmarks/auth | 尚未實作 | 目前僅有 UI 顯示與規格規劃，尚未有 mutation 與登入流程 |
+| S5 bookmarks/auth/personalization | 尚未實作 | 目前僅有 UI 顯示與規格規劃，尚未有 mutation、登入流程、負回饋隱藏文章 |
 
 ## 切片
 
@@ -169,8 +169,10 @@ S1. 可閱讀的文章列表
   - S1 缺 `GET /stats/today` 與 Dashboard stats 後端契約；recommended_action: `add_slice` -> `S1-1`。
   - S2 缺 article content extraction、content source/fallback、XSS 邊界；recommended_action: `add_slice` -> `S2-1`。
   - S2 缺 cold start feed sync 與「不要用列表查詢偷跑 crawler」的 UX/後端邊界；recommended_action: `add_slice` -> `S2-2`。
+  - S2 缺 feed source quality policy、抓取深度、低價值文章過濾與候選排序；recommended_action: `add_slice` -> `S2-3`。
   - S3 缺 quick summary generation、provider metadata、promptVersion、persistence/cache policy；recommended_action: `add_slice` -> `S3-1`。
   - S4 缺 provider/spec deviation 決策、SSE event contract 對齊、rate limit、secret-safe provider errors；recommended_action: `add_slice` -> `S4-1`。
+  - S5 缺 `not interested` 負回饋與個人化隱藏規則；recommended_action: `add_slice` -> `S5-1`。
 - intentional_deviation:
   - MVP 可用 Gemini/Stub 作 provider，但 spec target 是 Anthropic/Claude；document_or_fix: `document MVP deviation in S4-1, keep interface stable for later fix`。
   - MVP SSE 可暫用 `started/status/report/completed/error`，但 spec target 是 `start/chunk/field_done/done/error`；document_or_fix: `S4-1 must choose versioned MVP contract or fix to spec shape`。
@@ -189,7 +191,7 @@ S1. 可閱讀的文章列表
 - `release`: 一組功能完成後，用於發版前穩定化、版本文件、最後驗證。
 - `hotfix`: 正式版本上的緊急修復，例如 secret leak、production crash、資料破壞、安全漏洞。
 
-除非使用者明確說 production/master 已發生事故，S1-1 到 S4-1 預設都從 `develop` 開 `feature` branch。
+除非使用者明確說 production/master 已發生事故，本文件中的一般功能、UX、資料契約、回補與個人化 slice 預設都從 `develop` 開 `feature` branch。
 
 後續 build-and-learn-loop 開始前需先回報：
 
@@ -304,6 +306,43 @@ git_flow_classification:
   - 需要登入權限的 production crawl trigger。
 - reason_first: 這個 slice 定義第一屏資料取得的 UX 邊界，避免 crawler 和 read API 綁死，也避免使用者長期看到 seed/fake data。
 
+### S2-3. Feed source quality 與候選文章篩選回補
+
+- backfills: `S2. 文章詳情與來源匯入`
+- source_gap: 目前只規劃從少量固定 RSS source 匯入文章，但尚未定義哪些 feed URL 適合、每個 source 應抓多少候選、如何排除低價值文章，以及「只取前 10 筆」導致全是無意義文章時的補救策略。
+- why_now: Dashboard 的文章品質取決於 feed pipeline；若來源 URL 與候選篩選不穩，後續 AI summary/report 會把成本花在低價值文章上，使用者也會一直看到不想讀的內容。
+- git_flow_classification:
+  ```yaml
+  base_branch: develop
+  branch_type: feature
+  suggested_branch_name: feature/s2-3-feed-quality-filtering
+  reason: "Adds feed source quality rules, candidate depth, and low-value article filtering; this is ingestion quality work, not a production emergency."
+  ```
+- user_flow: 使用者打開 Dashboard 時，看到的是經過來源品質規則與候選篩選後的 AI 新聞；系統會避免把來源首頁公告、活動頁、廣告、職缺、純 release note index 或與 AI 無關的短文長期排在前面。
+- files_or_areas:
+  - `backend/src/AiDaily.Domain/Entities/FeedSource.cs`
+  - `backend/src/AiDaily.Application/FeedCrawler`
+  - `backend/src/AiDaily.Infrastructure/FeedCrawler`
+  - `backend/src/AiDaily.Infrastructure/ContentExtraction`
+  - `backend/src/AiDaily.Application/Articles`
+  - `backend/tests/AiDaily.UnitTests`
+  - `docs/feed-source-policy.md`
+- acceptance:
+  - Feed source 設定需記錄 source type、topic scope、default candidate limit、enabled state、quality notes；不要只保存 URL。
+  - 每個 source 先抓取超過畫面需要量的候選，例如 `candidateLimit`，再依品質規則篩選後才保存或顯示；不得把「RSS 前 10 筆」直接視為今日最佳 10 筆。
+  - 候選文章需有 deterministic pre-filter：標題/摘要/source metadata 至少命中 AI 相關關鍵詞或 allowlist topic；明顯的 job、event-only、sponsor、newsletter housekeeping、index page、過短內容要標記或排除。
+  - Article 需保存 ingestion metadata，例如 `ingestionScore`、`rejectionReason`、`matchedKeywords`、`sourceQualityTier` 或等價欄位，方便之後調整規則。
+  - `GET /api/v1/articles` 預設只回傳未被 rejection 的文章，並依 `publishedAt` 與 ingestion quality 排序；debug/admin 模式才看被排除候選。
+  - 若某個 source 前 N 筆都被排除，crawler 應繼續掃描到 `candidateLimit` 或停止條件，不因前 10 筆品質差就產生空白首頁。
+  - Feed source policy 文件需說明「如何選 URL」：優先 RSS/Atom、AI topic/tag feed、官方 blog news feed、研究 lab news；避免 homepage、search result HTML、需要 JS 的頁面、商業列表頁。
+  - 至少包含一個「前 10 筆低價值但後續有 AI 文章」的 crawler/filter 測試，以及一個 rejected article 不出現在一般列表的 query test。
+- not_included:
+  - Admin feed-source management UI。
+  - LLM-based relevance ranking。
+  - 付費 search/news API。
+  - 反 bot 繞過或需要瀏覽器執行 JavaScript 的來源。
+- reason_first: 這不是單純多加幾個 RSS URL，而是先把來源選擇、候選深度與 deterministic quality gate 定義清楚，避免產品一直餵給使用者低價值文章。
+
 ### S3-1. AI quick summary 生成、持久化與快取回補
 
 - backfills: `S3. AI 摘要預覽`
@@ -373,7 +412,14 @@ git_flow_classification:
 
 ### S5. 個人化、主題與收藏
 
-- user_flow: 使用者切換 light/dark theme、收藏文章、打開 `/bookmarks`，並讓偏好設定跨 session 保留。
+- git_flow_classification:
+  ```yaml
+  base_branch: develop
+  branch_type: feature
+  suggested_branch_name: feature/s5-personalization
+  reason: "Adds bookmarks, theme preferences, minimal personalization/auth behavior, and prepares the same feature branch for S5-1 negative feedback work; this is planned user-facing feature work, not a production emergency."
+  ```
+- user_flow: 使用者切換 light/dark theme、收藏文章、打開 `/bookmarks`，並讓偏好設定跨 session 保留；後續可延伸為對不感興趣文章的負回饋。
 - files_or_areas（planned）:
   - `frontend/src/components/common/ThemeToggle.vue`
   - `frontend/src/components/bookmark/BookmarkList.vue`
@@ -397,6 +443,44 @@ git_flow_classification:
   - 超出 MVP 最小驗證方案的 multi-device account management。
 - reason_first: 在核心閱讀與 AI 工作流程被證明後，加入提升留存與舒適度的功能。
 
+### S5-1. 不感興趣文章隱藏與負回饋個人化
+
+- backfills: `S5. 個人化、主題與收藏`
+- source_gap: S5 目前只規劃正向收藏與主題偏好，缺少「我不在乎這篇文章」這種負回饋；若沒有隱藏規則，使用者會一直看到已表明不想看的文章。
+- why_now: Feed quality 可以先靠 S2-3 做全域過濾，但每個使用者不在乎的文章、來源或 topic 不同；這應該落在個人化層，不應該污染全域 crawler 規則。
+- git_flow_classification:
+  ```yaml
+  base_branch: develop
+  branch_type: feature
+  suggested_branch_name: feature/s5-personalization
+  reason: "Extends the S5 personalization feature branch with negative feedback and hidden article filtering; this is user preference work, not a production emergency."
+  ```
+- user_flow: 使用者在 article card 或 detail actions 點選 `Not interested`；該文章立即從 Dashboard feed 消失，之後重新整理或再次同步也不會在一般列表中顯示，除非使用者到偏好/隱藏列表復原。
+- files_or_areas:
+  - `frontend/src/components/article/ArticleCard.vue`
+  - `frontend/src/views/Dashboard.vue`
+  - `frontend/src/stores/articleStore.ts`
+  - `frontend/src/stores/preferenceStore.ts`
+  - `frontend/src/services/apiClient.ts`
+  - `backend/src/AiDaily.API/Controllers/UserPreferencesController.cs`
+  - `backend/src/AiDaily.Application/UserPreferences`
+  - `backend/src/AiDaily.Domain/Entities/HiddenArticle.cs`
+  - `backend/src/AiDaily.Application/Articles`
+- acceptance:
+  - Article card 與 detail action 區提供 `Not interested` 操作；操作後該 article 立即從目前 feed 移除，不等重新整理。
+  - 後端保存 hidden article preference，至少記錄 user/localUserId、articleId、reason optional、createdAt。
+  - `GET /api/v1/articles` 預設排除目前使用者 hidden articles；pagination 不應因 hidden items 造成重複或空頁。
+  - 若尚未完成正式 auth，需使用明確的 temporary local-user strategy，不得把所有使用者共用同一份 hidden state。
+  - 提供復原入口，例如 settings hidden list 或 toast undo；復原後文章可再次出現在列表。
+  - Hidden article 不等於刪除 article，也不影響其他使用者、source statistics 或 AI summary/report persistence。
+  - 至少包含一個 backend query test，驗證 hidden article 不出現在一般列表；以及一個前端 store/component test，驗證點選後 feed 立即移除且可 undo。
+- not_included:
+  - 完整推薦系統。
+  - 根據負回饋自動封鎖整個來源或 topic。
+  - 多裝置帳號同步超出 S5 auth MVP 的部分。
+  - 用 LLM 推論使用者長期偏好。
+- reason_first: 這是個人化的負回饋能力，應該和收藏/偏好一起演進；它解決使用者明確說「我不在乎」後 feed 仍反覆顯示同一文章的問題。
+
 ## 延後處理
 
 - Report 的 PDF export。
@@ -414,4 +498,11 @@ git_flow_classification:
 next_skill: build-and-learn-loop
 artifact_path: docs/slices/ai-daily-slices.md
 first_slice: S1-1. Dashboard stats 與文章列表契約回補
+s5_handoff:
+  execution_rule: "Use the same feature branch, but run one slice per build-and-learn-loop pass; do not merge S5 and S5-1 into one implementation pass."
+  shared_branch: feature/s5-personalization
+  recommended_order:
+    - S5. 個人化、主題與收藏
+    - S5-1. 不感興趣文章隱藏與負回饋個人化
+  reason: "S5 establishes bookmark/theme and minimal user preference/auth behavior; S5-1 extends that personalization layer with negative feedback and hidden article filtering."
 ```

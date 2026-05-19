@@ -8,6 +8,7 @@ namespace AiDaily.API.Controllers;
 [Produces("application/json")]
 public sealed class ArticlesController : ControllerBase
 {
+    private const string LocalUserHeader = "X-AI-Daily-Local-User";
     private readonly ArticleQueryService _articleQueryService;
 
     public ArticlesController(ArticleQueryService articleQueryService)
@@ -28,6 +29,7 @@ public sealed class ArticlesController : ControllerBase
     {
         var result = await _articleQueryService.GetArticlesAsync(
             new ArticleListParams(cursor, limit, keyword, tags, source, date),
+            GetLocalUserId(),
             cancellationToken);
 
         var response = new ArticleListResponse(
@@ -44,7 +46,7 @@ public sealed class ArticlesController : ControllerBase
         [FromRoute] string id,
         CancellationToken cancellationToken = default)
     {
-        var article = await _articleQueryService.GetArticleAsync(id, cancellationToken);
+        var article = await _articleQueryService.GetArticleAsync(id, GetLocalUserId(), cancellationToken);
         if (article is null)
         {
             return NotFound(ApiErrorResponse.Fail(
@@ -54,6 +56,11 @@ public sealed class ArticlesController : ControllerBase
 
         return Ok(ApiResponse<ArticleDto>.Ok(article));
     }
+
+    private string GetLocalUserId() =>
+        Request.Headers.TryGetValue(LocalUserHeader, out var value)
+            ? value.ToString()
+            : string.Empty;
 }
 
 public sealed record ArticleListResponse(

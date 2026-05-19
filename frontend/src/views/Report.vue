@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AiSummaryPanel from '@/components/ai/AiSummaryPanel.vue'
+import ThemeToggle from '@/components/common/ThemeToggle.vue'
 import { useArticle } from '@/composables/useArticle'
 import { useAiReportStream } from '@/composables/useAiReportStream'
+import { useArticleStore } from '@/stores/articleStore'
+import { useThemeStore } from '@/stores/themeStore'
 
 const route = useRoute()
-const theme = ref<'dark' | 'light'>('dark')
+const articleStore = useArticleStore()
+const themeStore = useThemeStore()
 
 const articleId = computed(() => String(route.params.id ?? ''))
 const { article, errorMessage, isLoading, isNotFound } = useArticle(() => articleId.value)
@@ -141,18 +145,20 @@ const publishedLabel = computed(() => {
   }).format(new Date(article.value.publishedAt))
 })
 
-function toggleTheme(): void {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark'
-}
-
 function generateReport(force = false): void {
   void aiReport.generate(force)
+}
+
+function toggleBookmark(): void {
+  if (article.value) {
+    void articleStore.setBookmark(article.value, !article.value.isBookmarked)
+  }
 }
 
 </script>
 
 <template>
-  <div class="app-shell report-shell" :data-theme="theme">
+  <div class="app-shell report-shell" :data-theme="themeStore.resolvedTheme">
     <header class="header">
       <RouterLink class="back-btn" :to="{ name: 'dashboard' }">Back</RouterLink>
 
@@ -160,10 +166,11 @@ function generateReport(force = false): void {
       <div class="header-meta">{{ article?.sourceName ?? 'AI Daily' }} / {{ publishedLabel }}</div>
 
       <div class="header-right">
-        <button class="hdr-btn" type="button">Save</button>
+        <button class="hdr-btn" type="button" :disabled="!article" @click="toggleBookmark">
+          {{ article?.isBookmarked ? 'Saved' : 'Save' }}
+        </button>
         <a v-if="article" class="hdr-btn" :href="article.sourceUrl" target="_blank" rel="noreferrer">Source</a>
-        <button class="hdr-btn accent" type="button">Export PDF</button>
-        <button class="theme-toggle" type="button" @click="toggleTheme">{{ theme === 'dark' ? 'L' : 'D' }}</button>
+        <ThemeToggle />
       </div>
     </header>
 
@@ -323,7 +330,9 @@ function generateReport(force = false): void {
         <section class="side-section">
           <div class="side-label">Actions</div>
           <div class="action-list">
-            <button class="action-btn primary" type="button">Save report</button>
+            <button class="action-btn primary" type="button" @click="toggleBookmark">
+              {{ article.isBookmarked ? 'Saved report' : 'Save report' }}
+            </button>
             <a class="action-btn" :href="article.sourceUrl" target="_blank" rel="noreferrer">Read source</a>
             <RouterLink class="action-btn" :to="{ name: 'dashboard' }">Back to dashboard</RouterLink>
           </div>

@@ -1,5 +1,6 @@
 using AiDaily.Application.AiSummaries;
 using AiDaily.Application.Articles;
+using AiDaily.Application.Bookmarks;
 using AiDaily.Application.FeedCrawler;
 using AiDaily.Application.Stats;
 using AiDaily.Domain.Entities;
@@ -11,7 +12,8 @@ using AiDaily.Infrastructure.Repositories;
 using System.Net;
 
 var repository = new InMemoryArticleRepository();
-var service = new ArticleQueryService(repository);
+var bookmarkRepository = new InMemoryBookmarkRepository();
+var service = new ArticleQueryService(repository, bookmarkRepository);
 
 await ShouldFilterByKeyword();
 await ShouldFilterByTagAndPaginate();
@@ -35,12 +37,14 @@ await ShouldForceRegenerateAiSummaryAndRefreshCache();
 await ShouldGenerateAndReadAiReport();
 await ShouldRejectInvalidAiReportDraft();
 await ShouldNormalizeSparseAiReportDraft();
+await ShouldBookmarkArticleForLocalUser();
+await ShouldKeepBookmarksScopedToLocalUser();
 
 Console.WriteLine("AiDaily.UnitTests passed");
 
 async Task ShouldFilterByKeyword()
 {
-    var result = await service.GetArticlesAsync(new ArticleListParams(null, 20, "safety", null, null, null));
+    var result = await service.GetArticlesAsync(new ArticleListParams(null, 20, "safety", null, null, null), "local_test");
 
     Assert(result.TotalCount == 1, "keyword filter should return one safety article");
     Assert(result.Items[0].SourceName == "MIT Tech Review AI", "keyword filter should return MIT article");
@@ -48,8 +52,8 @@ async Task ShouldFilterByKeyword()
 
 async Task ShouldFilterByTagAndPaginate()
 {
-    var firstPage = await service.GetArticlesAsync(new ArticleListParams(null, 1, null, "research", null, null));
-    var secondPage = await service.GetArticlesAsync(new ArticleListParams(firstPage.Cursor, 1, null, "research", null, null));
+    var firstPage = await service.GetArticlesAsync(new ArticleListParams(null, 1, null, "research", null, null), "local_test");
+    var secondPage = await service.GetArticlesAsync(new ArticleListParams(firstPage.Cursor, 1, null, "research", null, null), "local_test");
 
     Assert(firstPage.Items.Count == 1, "first page should contain one item");
     Assert(firstPage.HasMore, "first page should report more items");
@@ -76,9 +80,9 @@ async Task ShouldGetTodayDashboardStats()
 async Task ShouldKeepArticleListQueriesReadOnly()
 {
     var crawler = new CountingFeedCrawler();
-    var queryService = new ArticleQueryService(repository);
+    var queryService = new ArticleQueryService(repository, bookmarkRepository);
 
-    _ = await queryService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null));
+    _ = await queryService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null), "local_test");
 
     Assert(crawler.Calls == 0, "article list queries should not trigger RSS crawler writes");
 }
@@ -102,7 +106,7 @@ async Task ShouldRunExplicitFeedSync()
 
 async Task ShouldGetArticleById()
 {
-    var article = await service.GetArticleAsync("art_01JAI001");
+    var article = await service.GetArticleAsync("art_01JAI001", "local_test");
 
     Assert(article is not null, "detail query should return an article");
     Assert(article!.SourceUrl == "https://openai.com/news/", "detail query should return the requested article");
@@ -112,7 +116,7 @@ async Task ShouldGetArticleById()
 
 async Task ShouldReturnNullForMissingArticle()
 {
-    var article = await service.GetArticleAsync("missing");
+    var article = await service.GetArticleAsync("missing", "local_test");
 
     Assert(article is null, "detail query should return null for missing article");
 }
@@ -250,8 +254,8 @@ async Task ShouldExcludeRejectedArticlesFromArticleList()
         IsBookmarked = false
     }, CancellationToken.None);
 
-    var localService = new ArticleQueryService(localRepository);
-    var result = await localService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null));
+    var localService = new ArticleQueryService(localRepository, new InMemoryBookmarkRepository());
+    var result = await localService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null), "local_test");
 
     Assert(result.Items.All(article => article.Id != "rejected_job"), "rejected articles should not appear in the normal article list");
 }
@@ -293,8 +297,8 @@ async Task ShouldUseIngestionQualityAsArticleListTieBreaker()
         IsBookmarked = false
     }, CancellationToken.None);
 
-    var localService = new ArticleQueryService(localRepository);
-    var result = await localService.GetArticlesAsync(new ArticleListParams(null, 2, null, null, null, null));
+    var localService = new ArticleQueryService(localRepository, new InMemoryBookmarkRepository());
+    var result = await localService.GetArticlesAsync(new ArticleListParams(null, 2, null, null, null, null), "local_test");
 
     Assert(result.Items[0].Id == "quality_high", "article list should use ingestion quality as a publishedAt tie-breaker");
     Assert(result.Items[1].Id == "quality_low", "lower quality article with the same publishedAt should sort after higher quality");
@@ -471,6 +475,44 @@ Task ShouldNormalizeSparseAiReportDraft()
     Assert(normalized.Scores.Confidence == 0, "confidence score should be clamped");
     Assert(normalized.Rating == "watchlist", "invalid rating should fall back to watchlist");
     return Task.CompletedTask;
+}
+
+async Task ShouldBookmarkArticleForLocalUser()
+{
+    var localRepository = new InMemoryArticleRepository();
+    var localBookmarks = new InMemoryBookmarkRepository();
+    var bookmarkService = new BookmarkService(
+        localRepository,
+        localBookmarks,
+        new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
+    var queryService = new ArticleQueryService(localRepository, localBookmarks);
+
+    var saved = await bookmarkService.AddAsync("local_reader", "art_01JAI001");
+    var article = await queryService.GetArticleAsync("art_01JAI001", "local_reader");
+    var bookmarks = await bookmarkService.ListAsync("local_reader");
+
+    Assert(saved.Status == BookmarkMutationStatus.Ready, "bookmark mutation should succeed for a local user");
+    Assert(article?.IsBookmarked == true, "article detail should include local user's bookmark state");
+    Assert(bookmarks.Count == 1 && bookmarks[0].Id == "art_01JAI001", "bookmark list should return saved article");
+}
+
+async Task ShouldKeepBookmarksScopedToLocalUser()
+{
+    var localRepository = new InMemoryArticleRepository();
+    var localBookmarks = new InMemoryBookmarkRepository();
+    var bookmarkService = new BookmarkService(
+        localRepository,
+        localBookmarks,
+        new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
+    var queryService = new ArticleQueryService(localRepository, localBookmarks);
+
+    await bookmarkService.AddAsync("local_reader_a", "art_01JAI001");
+
+    var articleForOtherUser = await queryService.GetArticleAsync("art_01JAI001", "local_reader_b");
+    var otherUserBookmarks = await bookmarkService.ListAsync("local_reader_b");
+
+    Assert(articleForOtherUser?.IsBookmarked == false, "bookmark state should not leak between local users");
+    Assert(otherUserBookmarks.Count == 0, "bookmark list should stay scoped to the local user id");
 }
 
 static void Assert(bool condition, string message)

@@ -3,7 +3,9 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import { useAiSummaryStore } from '@/stores/aiSummaryStore'
 import { useArticleStore } from '@/stores/articleStore'
-import { fetchArticles, fetchTodayStats, runTodayFeedCrawl } from '@/services/apiClient'
+import { useBookmarkStore } from '@/stores/bookmarkStore'
+import { useThemeStore } from '@/stores/themeStore'
+import { addBookmark, deleteBookmark, fetchArticles, fetchTodayStats, runTodayFeedCrawl } from '@/services/apiClient'
 
 vi.mock('@/services/apiClient', () => ({
   fetchArticles: vi.fn(async () => ({
@@ -70,6 +72,33 @@ vi.mock('@/services/apiClient', () => ({
     sourceFailures: 0,
     logs: ['Crawled Example: 1 RSS items read.'],
     completedAt: '2026-05-13T06:01:00Z',
+  })),
+  fetchBookmarks: vi.fn(async () => [
+    {
+      id: 'art_saved',
+      title: 'Saved AI release',
+      summary: 'A saved summary',
+      content: 'A saved summary',
+      contentText: 'A saved summary',
+      contentStatus: 'summary_fallback',
+      contentExtractedAt: null,
+      sourceUrl: 'https://example.com/saved',
+      sourceName: 'Example',
+      sourceLogoUrl: null,
+      tags: ['model'],
+      publishedAt: '2026-05-12T06:00:00Z',
+      hasAiSummary: true,
+      isBookmarked: true,
+      readTimeMinutes: 5,
+    },
+  ]),
+  addBookmark: vi.fn(async (articleId: string) => ({
+    articleId,
+    isBookmarked: true,
+  })),
+  deleteBookmark: vi.fn(async (articleId: string) => ({
+    articleId,
+    isBookmarked: false,
   })),
 }))
 
@@ -208,5 +237,41 @@ describe('articleStore', () => {
     expect(store.byArticleId.art_02.highlights).toContain('Generated highlight')
     expect(store.byArticleId.art_02.promptVersion).toBe('quick-summary-v1')
     expect(store.errorByArticleId.art_02).toBeUndefined()
+  })
+
+  it('updates bookmark state optimistically', async () => {
+    setActivePinia(createPinia())
+    const store = useArticleStore()
+
+    await store.loadArticles(true)
+    await store.setBookmark(store.articles[0], true)
+
+    expect(addBookmark).toHaveBeenCalledWith('art_01')
+    expect(store.articles[0].isBookmarked).toBe(true)
+
+    await store.setBookmark(store.articles[0], false)
+
+    expect(deleteBookmark).toHaveBeenCalledWith('art_01')
+    expect(store.articles[0].isBookmarked).toBe(false)
+  })
+
+  it('loads bookmark list into state', async () => {
+    setActivePinia(createPinia())
+    const store = useBookmarkStore()
+
+    await store.loadBookmarks()
+
+    expect(store.articles).toHaveLength(1)
+    expect(store.articles[0].isBookmarked).toBe(true)
+  })
+
+  it('persists theme preference in the theme store', () => {
+    setActivePinia(createPinia())
+    const store = useThemeStore()
+
+    store.setPreference('light')
+
+    expect(store.preference).toBe('light')
+    expect(store.resolvedTheme).toBe('light')
   })
 })
