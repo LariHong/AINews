@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { addBookmark, deleteBookmark, fetchArticle, fetchArticles, fetchTodayStats, runTodayFeedCrawl } from '@/services/apiClient'
+import { addBookmark, deleteBookmark, fetchArticle, fetchArticles, fetchTodayStats, hideArticle as hideArticlePreference, restoreHiddenArticle, runTodayFeedCrawl } from '@/services/apiClient'
 import type { Article, ArticleListParams, DashboardStats, FeedSyncViewState } from '@/types/article'
 
 export const useArticleStore = defineStore('articleStore', {
@@ -19,6 +19,8 @@ export const useArticleStore = defineStore('articleStore', {
     feedSyncMessage: '',
     feedSyncErrorMessage: '',
     feedSyncViewState: 'idle' as FeedSyncViewState,
+    recentlyHiddenArticle: null as Article | null,
+    hiddenPreferenceMessage: '',
     isLoading: false,
     errorMessage: '',
     filters: {
@@ -134,6 +136,50 @@ export const useArticleStore = defineStore('articleStore', {
       } catch (error) {
         this.patchBookmarkState(article.id, previous)
         this.errorMessage = error instanceof Error ? error.message : 'Unable to update bookmark'
+      }
+    },
+    async hideArticle(article: Article): Promise<void> {
+      const previousArticles = [...this.articles]
+      const previousSelectedArticle = this.selectedArticle
+      const previousTotalCount = this.totalCount
+      this.recentlyHiddenArticle = article
+      this.hiddenPreferenceMessage = 'Article hidden from your feed.'
+      this.articles = this.articles.filter((item) => item.id !== article.id)
+      this.totalCount = Math.max(0, this.totalCount - 1)
+
+      if (this.selectedArticle?.id === article.id) {
+        this.selectedArticle = null
+      }
+
+      try {
+        await hideArticlePreference(article.id)
+      } catch (error) {
+        this.articles = previousArticles
+        this.selectedArticle = previousSelectedArticle
+        this.totalCount = previousTotalCount
+        this.recentlyHiddenArticle = null
+        this.hiddenPreferenceMessage = ''
+        this.errorMessage = error instanceof Error ? error.message : 'Unable to hide article'
+      }
+    },
+    async undoHideArticle(): Promise<void> {
+      const article = this.recentlyHiddenArticle
+      if (!article) return
+
+      this.recentlyHiddenArticle = null
+      this.hiddenPreferenceMessage = ''
+      this.articles = [article, ...this.articles]
+        .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
+      this.totalCount += 1
+
+      try {
+        await restoreHiddenArticle(article.id)
+      } catch (error) {
+        this.articles = this.articles.filter((item) => item.id !== article.id)
+        this.totalCount = Math.max(0, this.totalCount - 1)
+        this.recentlyHiddenArticle = article
+        this.hiddenPreferenceMessage = 'Article hidden from your feed.'
+        this.errorMessage = error instanceof Error ? error.message : 'Unable to restore article'
       }
     },
     patchBookmarkState(articleId: string, isBookmarked: boolean): void {

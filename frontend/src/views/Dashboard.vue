@@ -249,6 +249,11 @@ onMounted(() => {
           </button>
         </div>
 
+        <div v-if="articleStore.hiddenPreferenceMessage" class="sync-banner">
+          <span>{{ articleStore.hiddenPreferenceMessage }}</span>
+          <button class="btn-sm" type="button" @click="articleStore.undoHideArticle">Undo</button>
+        </div>
+
         <div v-if="articleStore.feedSyncViewState === 'empty_fresh_start'" class="cold-start-panel">
           <div class="cold-start-copy">
             <strong>Fetching today's AI news...</strong>
@@ -271,6 +276,7 @@ onMounted(() => {
           :selected-article-id="selectedArticle?.id"
           @select="selectArticle"
           @bookmark="articleStore.setBookmark"
+          @hide="articleStore.hideArticle"
           @load-more="articleStore.loadArticles(false)"
         />
       </section>

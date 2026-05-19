@@ -70,6 +70,11 @@ export interface BookmarkResponse {
   isBookmarked: boolean
 }
 
+export interface HiddenArticleResponse {
+  articleId: string
+  isHidden: boolean
+}
+
 export interface ApiResponse<T> {
   success: boolean
   data: T

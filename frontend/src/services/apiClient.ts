@@ -7,6 +7,7 @@ import type {
   BookmarkResponse,
   DashboardStats,
   FeedCrawlRunResult,
+  HiddenArticleResponse,
 } from '@/types/article'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
@@ -114,6 +115,51 @@ export async function deleteBookmark(articleId: string): Promise<BookmarkRespons
   }
 
   const payload = (await response.json()) as ApiResponse<BookmarkResponse>
+  return payload.data
+}
+
+export async function fetchHiddenArticles(): Promise<Article[]> {
+  const response = await fetch(`${API_BASE_URL}/user-preferences/hidden-articles`, {
+    headers: localUserHeaders(),
+  })
+
+  if (!response.ok) {
+    throw await createApiError(response, `Hidden article API failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as ApiResponse<Article[]>
+  return payload.data
+}
+
+export async function hideArticle(articleId: string, reason = 'not_interested'): Promise<HiddenArticleResponse> {
+  const response = await fetch(`${API_BASE_URL}/user-preferences/hidden-articles/${encodeURIComponent(articleId)}`, {
+    method: 'POST',
+    headers: {
+      ...localUserHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ reason }),
+  })
+
+  if (!response.ok) {
+    throw await createApiError(response, `Hidden article API failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as ApiResponse<HiddenArticleResponse>
+  return payload.data
+}
+
+export async function restoreHiddenArticle(articleId: string): Promise<HiddenArticleResponse> {
+  const response = await fetch(`${API_BASE_URL}/user-preferences/hidden-articles/${encodeURIComponent(articleId)}`, {
+    method: 'DELETE',
+    headers: localUserHeaders(),
+  })
+
+  if (!response.ok) {
+    throw await createApiError(response, `Hidden article API failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as ApiResponse<HiddenArticleResponse>
   return payload.data
 }
 

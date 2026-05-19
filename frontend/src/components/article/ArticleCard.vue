@@ -9,6 +9,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'select', article: Article): void
   (event: 'bookmark', article: Article, isBookmarked: boolean): void
+  (event: 'hide', article: Article): void
 }>()
 
 function formatTimeAgo(value: string): string {
@@ -55,6 +56,7 @@ function openSource(): void {
       <button class="btn-sm" type="button" @click.stop="emit('bookmark', article, !article.isBookmarked)">
         {{ article.isBookmarked ? 'Saved' : 'Save' }}
       </button>
+      <button class="btn-sm" type="button" @click.stop="emit('hide', article)">Not interested</button>
       <button class="btn-sm" type="button" @click.stop="openSource">Source</button>
       <span v-if="article.readTimeMinutes" class="read-time">{{ article.readTimeMinutes }} min</span>
       <span class="card-time">{{ formatTimeAgo(article.publishedAt) }}</span>

@@ -14,6 +14,7 @@ const emit = defineEmits<{
   (event: 'load-more'): void
   (event: 'select', article: Article): void
   (event: 'bookmark', article: Article, isBookmarked: boolean): void
+  (event: 'hide', article: Article): void
 }>()
 </script>
 
@@ -30,6 +31,7 @@ const emit = defineEmits<{
         :selected="article.id === selectedArticleId"
         @select="emit('select', article)"
         @bookmark="(article, isBookmarked) => emit('bookmark', article, isBookmarked)"
+        @hide="(article) => emit('hide', article)"
       />
       <button
         v-if="hasMore"

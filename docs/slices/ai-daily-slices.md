@@ -38,7 +38,8 @@ S1. 可閱讀的文章列表
 | S2 article detail API / RSS 匯入 | 尚未實作 | `GET /api/v1/articles/{id}`、FeedCrawler、RSS persistence 尚待後續切片 |
 | S3/S4 AI summary/report pipeline | 尚未實作 | AI API key、AI provider service、SSE streaming、summary/report persistence 尚待後續切片 |
 | S1-S4 backfill / spec reconciliation | 尚未實作 | 依 `AI-Daily-Spec.md` 回補目前 S1-S4 基底缺口，放在 S4 後、S5 前逐項處理 |
-| S5 bookmarks/auth/personalization | 尚未實作 | 目前僅有 UI 顯示與規格規劃，尚未有 mutation、登入流程、負回饋隱藏文章 |
+| S5 bookmarks/auth/personalization | 已完成初版 | 已有 bookmark mutation、theme preference、本機 local-user strategy 與 bookmarks/settings UI |
+| S5-1 negative feedback hidden articles | 已完成初版 | Article card/report actions 可隱藏文章；一般列表會依 local-user hidden preference 排除，並提供 undo/settings restore |
 
 ## 切片
 
