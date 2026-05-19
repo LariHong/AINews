@@ -10,16 +10,19 @@ namespace AiDaily.API.Controllers;
 public sealed class AiSummaryController : ControllerBase
 {
     private readonly AiSummaryQueryService _summaryQueryService;
+    private readonly AiSummaryGenerationService _summaryGenerationService;
     private readonly AiReportQueryService _reportQueryService;
     private readonly AiReportGenerationService _reportGenerationService;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public AiSummaryController(
         AiSummaryQueryService summaryQueryService,
+        AiSummaryGenerationService summaryGenerationService,
         AiReportQueryService reportQueryService,
         AiReportGenerationService reportGenerationService)
     {
         _summaryQueryService = summaryQueryService;
+        _summaryGenerationService = summaryGenerationService;
         _reportQueryService = reportQueryService;
         _reportGenerationService = reportGenerationService;
     }
@@ -42,6 +45,25 @@ public sealed class AiSummaryController : ControllerBase
             _ => NotFound(ApiErrorResponse.Fail(
                 "AI_SUMMARY_NOT_FOUND",
                 $"AI summary for article '{articleId}' is not available yet."))
+        };
+    }
+
+    [HttpPost]
+    [ProducesResponseType(typeof(ApiResponse<AiSummaryDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ApiResponse<AiSummaryDto>>> GenerateAiSummary(
+        [FromRoute] string articleId,
+        [FromQuery] bool force = false,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _summaryGenerationService.GenerateAsync(articleId, force, cancellationToken);
+
+        return result.Status switch
+        {
+            AiSummaryGenerationStatus.Ready => Ok(ApiResponse<AiSummaryDto>.Ok(result.Summary!)),
+            _ => NotFound(ApiErrorResponse.Fail(
+                "ARTICLE_NOT_FOUND",
+                $"Article '{articleId}' was not found."))
         };
     }
 

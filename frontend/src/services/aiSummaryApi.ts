@@ -14,6 +14,20 @@ export async function fetchAiSummary(articleId: string): Promise<AiSummary> {
   return payload.data
 }
 
+export async function generateAiSummary(articleId: string, force = false): Promise<AiSummary> {
+  const query = force ? '?force=true' : ''
+  const response = await fetch(`${API_BASE_URL}/articles/${encodeURIComponent(articleId)}/ai-summary${query}`, {
+    method: 'POST',
+  })
+
+  if (!response.ok) {
+    throw await createApiError(response, `AI summary generation failed with ${response.status}`)
+  }
+
+  const payload = (await response.json()) as ApiResponse<AiSummary>
+  return payload.data
+}
+
 export async function fetchAiReport(articleId: string): Promise<AiReport> {
   const response = await fetch(`${API_BASE_URL}/articles/${encodeURIComponent(articleId)}/ai-report`)
 

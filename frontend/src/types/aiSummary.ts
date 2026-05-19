@@ -4,6 +4,8 @@ export interface AiSummary {
   impactScope: string
   controversy: string
   editorView: string
+  provider: string
+  promptVersion: string
   generatedAt: string
 }
 

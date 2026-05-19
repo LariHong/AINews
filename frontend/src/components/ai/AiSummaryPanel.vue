@@ -17,6 +17,12 @@ const error = computed(() => (articleId.value ? summaryStore.errorByArticleId[ar
 const isLoading = computed(() => (articleId.value ? summaryStore.loadingByArticleId[articleId.value] === true : false))
 const isEmpty = computed(() => error.value?.code === 'AI_SUMMARY_NOT_FOUND')
 
+function generateSummary() {
+  if (articleId.value) {
+    void summaryStore.generateSummary(articleId.value)
+  }
+}
+
 watch(
   articleId,
   (id) => {
@@ -58,12 +64,17 @@ watch(
         <p>{{ summary.editorView }}</p>
       </div>
 
+      <div class="summary-meta">
+        {{ summary.provider }} · {{ summary.promptVersion }}
+      </div>
+
       <RouterLink v-if="compact" class="btn-full-report" :to="{ name: 'report', params: { id: article.id } }">
         Open Full Report
       </RouterLink>
     </div>
     <div v-else-if="isEmpty || !article.hasAiSummary" class="summary-state">
       This article is waiting for an AI summary.
+      <button type="button" class="btn-full-report" @click="generateSummary">Generate Summary</button>
       <RouterLink v-if="compact" class="btn-full-report" :to="{ name: 'report', params: { id: article.id } }">
         Open Full Report
       </RouterLink>

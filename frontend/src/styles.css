@@ -722,6 +722,12 @@ a {
   padding: 10px;
 }
 
+.summary-meta {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 .summary-state {
   border: 1px solid var(--border);
   border-radius: 10px;

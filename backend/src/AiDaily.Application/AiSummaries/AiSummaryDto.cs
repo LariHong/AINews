@@ -6,4 +6,6 @@ public sealed record AiSummaryDto(
     string ImpactScope,
     string Controversy,
     string EditorView,
+    string Provider,
+    string PromptVersion,
     DateTimeOffset GeneratedAt);

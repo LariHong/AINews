@@ -8,5 +8,7 @@ public sealed class AiSummary
     public required string ImpactScope { get; init; }
     public required string Controversy { get; init; }
     public required string EditorView { get; init; }
+    public required string Provider { get; init; }
+    public required string PromptVersion { get; init; }
     public DateTimeOffset GeneratedAt { get; init; }
 }
