@@ -40,7 +40,8 @@ public sealed class RssFeedCrawler : IFeedCrawler
             {
                 using var stream = await _httpClient.GetStreamAsync(source.FeedUrl, cancellationToken);
                 var document = await XDocument.LoadAsync(stream, LoadOptions.None, cancellationToken);
-                var items = document.Descendants("item").Take(10).ToList();
+                var candidateLimit = Math.Clamp(source.DefaultCandidateLimit, 10, 100);
+                var items = document.Descendants("item").Take(candidateLimit).ToList();
 
                 foreach (var item in items)
                 {
@@ -52,6 +53,13 @@ public sealed class RssFeedCrawler : IFeedCrawler
                     }
 
                     var summary = ReadValue(item, "description");
+                    var quality = FeedArticleQualityFilter.Evaluate(source, title, summary, link);
+                    if (quality.RejectionReason is not null)
+                    {
+                        logs.Add($"Rejected {source.Name}: {title} ({quality.RejectionReason}).");
+                        continue;
+                    }
+
                     var content = _contentExtractor is null
                         ? ArticleContentExtractionResult.SummaryFallback(summary)
                         : await _contentExtractor.ExtractAsync(link, summary, cancellationToken);
@@ -68,7 +76,12 @@ public sealed class RssFeedCrawler : IFeedCrawler
                         SourceUrl = link,
                         SourceId = source.Id,
                         SourceName = source.Name,
-                        Tags = ["rss"],
+                        Tags = quality.MatchedKeywords.Count > 0
+                            ? quality.MatchedKeywords
+                            : ["rss"],
+                        IngestionScore = quality.Score,
+                        MatchedKeywords = quality.MatchedKeywords,
+                        SourceQualityTier = source.SourceQualityTier,
                         PublishedAt = ParsePublishedAt(ReadValue(item, "pubDate")),
                         HasAiSummary = false,
                         IsBookmarked = false,
@@ -79,7 +92,7 @@ public sealed class RssFeedCrawler : IFeedCrawler
                 }
 
                 source.LastCrawledAt = DateTimeOffset.UtcNow;
-                logs.Add($"Crawled {source.Name}: {items.Count} RSS items read.");
+                logs.Add($"Crawled {source.Name}: {items.Count} RSS candidates read.");
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Xml.XmlException)
             {

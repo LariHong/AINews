@@ -23,6 +23,9 @@ await ShouldReturnNullForMissingArticle();
 await ShouldSanitizeExtractedArticleContent();
 await ShouldFallbackWhenContentExtractionFails();
 await ShouldCrawlRssIntoArticles();
+await ShouldScanBeyondFirstTenLowValueCandidates();
+await ShouldExcludeRejectedArticlesFromArticleList();
+await ShouldUseIngestionQualityAsArticleListTieBreaker();
 await ShouldGetAiSummaryPreview();
 await ShouldReturnSummaryNotFound();
 await ShouldCacheAiSummaryPreview();
@@ -174,6 +177,127 @@ async Task ShouldCrawlRssIntoArticles()
     Assert(result.ArticlesPersisted == 1, "crawler should persist one RSS item");
     Assert(imported is not null, "crawler should persist article by stable source URL id");
     Assert(imported!.SourceUrl == "https://example.com/ai-feed-story", "crawler should preserve source_url");
+    Assert(imported.IngestionScore > 0, "crawler should save ingestion score metadata");
+    Assert(imported.MatchedKeywords.Count > 0, "crawler should save matched keyword metadata");
+    Assert(imported.SourceQualityTier.Length > 0, "crawler should save source quality tier metadata");
+}
+
+async Task ShouldScanBeyondFirstTenLowValueCandidates()
+{
+    const string rss = """
+        <rss version="2.0">
+          <channel>
+            <item><title>Hiring backend engineer for platform team</title><link>https://example.com/job-01</link><description>Apply now for a full time role.</description></item>
+            <item><title>Hiring product manager for developer tools</title><link>https://example.com/job-02</link><description>Apply now for a full time role.</description></item>
+            <item><title>Register for vendor webinar next week</title><link>https://example.com/event-03</link><description>Tickets and sponsor details for attendees.</description></item>
+            <item><title>Weekly newsletter housekeeping update</title><link>https://example.com/newsletter-04</link><description>Unsubscribe and preference center links.</description></item>
+            <item><title>Release notes index for website changes</title><link>https://example.com/index-05</link><description>A changelog index without article analysis.</description></item>
+            <item><title>Hiring data analyst for operations team</title><link>https://example.com/job-06</link><description>Apply now for a full time role.</description></item>
+            <item><title>Register for sponsor meetup</title><link>https://example.com/event-07</link><description>Tickets and sponsor details for attendees.</description></item>
+            <item><title>Weekly newsletter housekeeping reminder</title><link>https://example.com/newsletter-08</link><description>Unsubscribe and preference center links.</description></item>
+            <item><title>Release notes index archive</title><link>https://example.com/index-09</link><description>A changelog index without article analysis.</description></item>
+            <item><title>Hiring customer success lead</title><link>https://example.com/job-10</link><description>Apply now for a full time role.</description></item>
+            <item>
+              <title>OpenAI model safety benchmark improves agent evaluations</title>
+              <link>https://example.com/ai-benchmark-11</link>
+              <description>Researchers compare LLM agent behavior with new safety and reasoning tests.</description>
+              <pubDate>Tue, 12 May 2026 07:30:00 GMT</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """;
+
+    var localRepository = new InMemoryArticleRepository();
+    using var httpClient = new HttpClient(new StaticRssHandler(rss));
+    var crawler = new RssFeedCrawler(httpClient, localRepository);
+    var result = await crawler.CrawlAsync([
+        new FeedSource
+        {
+            Id = "quality-test",
+            Name = "Quality Test Feed",
+            FeedUrl = "https://example.com/rss.xml",
+            TopicScope = "ai-news",
+            DefaultCandidateLimit = 12,
+            SourceQualityTier = "core"
+        }
+    ]);
+    var articles = await localRepository.ListAsync(CancellationToken.None);
+    var imported = articles.FirstOrDefault(article => article.SourceUrl == "https://example.com/ai-benchmark-11");
+
+    Assert(result.ArticlesPersisted == 1, "crawler should continue past the first ten low-value candidates");
+    Assert(result.Logs.Count(log => log.StartsWith("Rejected", StringComparison.OrdinalIgnoreCase)) == 10, "crawler should log deterministic rejections");
+    Assert(imported is not null, "crawler should persist the later relevant AI article");
+    Assert(imported!.IngestionScore > 0, "persisted article should include quality score");
+}
+
+async Task ShouldExcludeRejectedArticlesFromArticleList()
+{
+    var localRepository = new InMemoryArticleRepository();
+    await localRepository.UpsertAsync(new Article
+    {
+        Id = "rejected_job",
+        Title = "AI hiring roundup",
+        Summary = "A jobs-only article should be hidden from the normal reader feed.",
+        SourceUrl = "https://example.com/rejected-job",
+        SourceName = "Example",
+        Tags = ["ai"],
+        PublishedAt = DateTimeOffset.Parse("2026-05-14T00:00:00Z"),
+        IngestionScore = 0,
+        RejectionReason = "job_posting",
+        MatchedKeywords = ["ai"],
+        SourceQualityTier = "watch",
+        HasAiSummary = false,
+        IsBookmarked = false
+    }, CancellationToken.None);
+
+    var localService = new ArticleQueryService(localRepository);
+    var result = await localService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null));
+
+    Assert(result.Items.All(article => article.Id != "rejected_job"), "rejected articles should not appear in the normal article list");
+}
+
+async Task ShouldUseIngestionQualityAsArticleListTieBreaker()
+{
+    var localRepository = new InMemoryArticleRepository();
+    var publishedAt = DateTimeOffset.Parse("2026-05-15T00:00:00Z");
+
+    await localRepository.UpsertAsync(new Article
+    {
+        Id = "quality_low",
+        Title = "AI platform update",
+        Summary = "A relevant but lower-confidence AI platform update.",
+        SourceUrl = "https://example.com/quality-low",
+        SourceName = "Example",
+        Tags = ["ai"],
+        PublishedAt = publishedAt,
+        IngestionScore = 55,
+        MatchedKeywords = ["ai"],
+        SourceQualityTier = "watch",
+        HasAiSummary = false,
+        IsBookmarked = false
+    }, CancellationToken.None);
+
+    await localRepository.UpsertAsync(new Article
+    {
+        Id = "quality_high",
+        Title = "OpenAI benchmark improves model safety evaluations",
+        Summary = "A relevant AI model safety article with stronger ingestion metadata.",
+        SourceUrl = "https://example.com/quality-high",
+        SourceName = "Example",
+        Tags = ["ai", "model", "safety"],
+        PublishedAt = publishedAt,
+        IngestionScore = 95,
+        MatchedKeywords = ["openai", "model", "safety"],
+        SourceQualityTier = "core",
+        HasAiSummary = false,
+        IsBookmarked = false
+    }, CancellationToken.None);
+
+    var localService = new ArticleQueryService(localRepository);
+    var result = await localService.GetArticlesAsync(new ArticleListParams(null, 2, null, null, null, null));
+
+    Assert(result.Items[0].Id == "quality_high", "article list should use ingestion quality as a publishedAt tie-breaker");
+    Assert(result.Items[1].Id == "quality_low", "lower quality article with the same publishedAt should sort after higher quality");
 }
 
 async Task ShouldGetAiSummaryPreview()
