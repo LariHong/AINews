@@ -687,8 +687,8 @@ git_flow_classification:
 #### Current implementation
 
 - 已有 deterministic quality filter、candidateLimit 掃描與 accepted article ingestion metadata。
-- 目前 quality filter 會把 `source.Name` 與 `source.TopicScope` 一起放進 AI relevance haystack；若來源名稱或 topic 本身含 `AI`，非 AI 文章也可能被 keyword 命中而通過。
-- `GET /api/v1/articles` 目前會先依 `publishedAt` 排序，再用 `ingestionScore` 當 tie-breaker；品質分數不會讓稍早但高訊號的文章排到低訊號新文章前面。
+- S2-3b 已修正 quality filter，不再讓 `source.Name` 與 `source.TopicScope` 在候選內容無 AI 訊號時自動通過 relevance gate。
+- S2-3b 已讓 `GET /api/v1/articles` 採用同日內 quality first、再 recency 的預設排序，避免低分新文章無條件壓過高分稍早文章。
 - Seed source 實作目前只包含少量固定來源，且有 newsletter / aggregator 類 `watch` source；尚未回補 spec 中較高訊號的官方 blog、研究、政策與主流 AI topic feed。
 - Rejected candidates 目前只寫入 crawler logs，沒有保存 `rejectionReason` 到 article 或 audit table。
 
@@ -696,20 +696,18 @@ git_flow_classification:
 
 - `docs/feed-source-policy.md` 期望保留 rejected metadata；目前 runtime 是 logs-only MVP。
 - 沒有 admin/debug view 或 rejected candidate audit store 可用於調校來源。
-- AI relevance 判斷不應因 source metadata 含 `AI` 就自動通過；title、summary、canonical URL 或明確 allowlist topic 才應主導候選文章是否相關。
-- 目前缺少 minimum quality threshold、generic `ai` only 降權或短內容低訊號規則，導致「有 AI 字樣但沒有讀者價值」的文章仍可能進入一般 feed。
-- Reader feed 排序偏新鮮度，尚未定義 quality-vs-recency 規則；使用者可能先看到最新但低價值的文章，而不是高訊號文章。
+- Rejected candidates 的長期 audit metadata 尚未保存；目前無法做 rejection-rate trend、rejected reason breakdown 或長期 source quality analysis。
 
 #### Next actions
 
-- 先做 S2-3b 修正 relevance gate 與 reader ranking，處理低訊號文章進入一般 feed 的直接問題。
-- 決定 rejected candidates 要保存成 audit records，或將 policy 明確降級為 logs-only MVP。
-- 若選擇保存，新增 rejected candidate persistence 與查詢測試；若不保存，文件需說明目前不能做長期 source quality analysis。
-- S2-3a rejected metadata 決策不要和 S2-3b、source expansion 或 admin/debug UI 混在同一輪。
+- S2-3a 決策：本階段將 rejected candidate metadata 明確文件化為 logs-only MVP deferral，不新增 rejected audit persistence 或 admin/debug UI。
+- 後續若要做長期 source quality analysis，需另開 rejected audit persistence slice，定義 audit store、query surface、retention 與 reader/admin visibility 邊界。
 
 #### S2-3a. Rejected candidate metadata decision
 
 S2-3 是較大的 feed quality umbrella；下一個可執行工作只做 S2-3a。S2-3a 的範圍是決定 rejected candidates 是否保存 audit metadata，或明確把目前 runtime 降級為 logs-only MVP。不要在這一輪重做 candidate limit、sorting、source selection、admin UI 或整個 persistence baseline。
+
+Decision: S2-3a 採用 logs-only MVP deferral。Crawler 仍會在 run logs 記錄 rejected candidates，但不新增 rejected candidate audit table、query endpoint、admin/debug UI 或長期保存機制。這代表目前不能做長期 rejected-candidate analysis、source rejection-rate trend 或 rejected reason breakdown；source quality 調校只能依 accepted article ingestion metadata、當次 crawler logs 與人工觀察。一般 reader feed 仍必須排除 `rejectionReason` 非空的 articles，並由既有 unit test 覆蓋。
 
 #### S2-3b. Feed relevance gate and ranking hardening
 
