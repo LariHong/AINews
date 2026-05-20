@@ -74,7 +74,8 @@ Status legend:
 | 3 | Quick summary state sync | `S3-1` | `feature/s3-1-summary-state-sync` | 生成 summary 後 article badge/stats/cache 狀態一致 |
 | 4 | Feed relevance gate and ranking hardening | `S2-3b` | `feature/s2-3b-feed-relevance-ranking` | 低訊號 RSS candidate 不因 source metadata 含 AI 而進 feed，reader list 不再只偏新鮮度 |
 | 5 | Rejected metadata decision | `S2-3a` | `feature/s2-3a-rejected-metadata-decision` | rejected candidates 不再只是在計畫裡消失 |
-| 6 | Reader list cursor hardening | `S1` follow-up | `feature/s1-article-list-cursor-hardening` | hidden/filter/new articles 下 pagination 不漏不重 |
+| 6 | Source/content quality upgrade | `S2-4` | `feature/s2-4-source-content-quality` | 來源少而精，正文抽取不再把雜訊或短摘要假裝成 full content |
+| 7 | Reader list cursor hardening | `S1` follow-up | `feature/s1-article-list-cursor-hardening` | hidden/filter/new articles 下 pagination 不漏不重 |
 
 ### Copy-Paste Prompts
 
@@ -207,7 +208,34 @@ validation_commands:
 - dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
 ```
 
-#### 6. S1 reader list cursor hardening
+#### 6. S2-4 source/content quality upgrade
+
+```text
+請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S2-4，改善 AINEWS 的 source/content quality。
+
+只做 S2-4，不要同時做 rejected audit persistence、admin/debug UI、LLM ranking、個人化推薦、完整 search/news API、cursor hardening 或大規模來源擴張。
+
+開始前先回報 git_flow_classification，預設：
+- base_branch: main
+- branch_type: feature
+- suggested_branch_name: feature/s2-4-source-content-quality
+
+成功標準：
+- Seed feed sources 改成少而精：優先官方 AI lab/product/research/policy/engineering feeds 與少量高品質 AI topic feeds；移除或降級明顯低訊號 aggregator/newsletter/watch source。
+- Source tier threshold 更硬：`core`、`standard`、`watch` 或等價 tier 對 accepted score 有不同門檻；watch/aggregator 不得只因 generic AI signal 進一般 reader feed。
+- HTML content extraction 不再把過短正文、navigation/cookie/sidebar/related-posts 雜訊或 RSS summary fallback 標成 `full_content_ready`。
+- 新增 deterministic content quality gate，例如 minimum clean text length、clean text 與 fallback summary 的區分、noise phrase rejection 或 content/source ratio；低品質正文需標成 `summary_fallback` 或 `extraction_failed`。
+- AI summary/report input 只能把 `full_content_ready` 視為完整正文；fallback 狀態不得宣稱已讀完整原文。
+- 補測試：低品質 HTML 不應標成 full content；可讀正文應保留 main article text 並移除 nav/sidebar/cookie 類雜訊；watch source 低訊號候選應被 rejected 或低於 reader threshold。
+- 保留 S2-3b relevance/ranking 測試、S2-3a rejected deferral 文件語意、既有 content extraction fallback 測試。
+
+validation_commands:
+- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+
+如果 build 因本機 API/Visual Studio 鎖定 bin 檔失敗，可改用隔離 output，例如加上 `--property:BaseOutputPath=<repo>/.tmp/s2-4-test-output/`，並在完成後清理 `.tmp`。
+```
+
+#### 7. S1 reader list cursor hardening
 
 ```text
 請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S1 current gaps，修正 reader list cursor pagination。
@@ -257,6 +285,7 @@ validation_commands:
 | S3-1 summary state sync | `backend/src/AiDaily.Application/AiSummaries`、`frontend/src/components/ai/AiSummaryPanel.vue`、`frontend/src/stores/aiSummaryStore.ts` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
 | S2-3b feed relevance/ranking | `backend/src/AiDaily.Infrastructure/FeedCrawler/FeedArticleQualityFilter.cs`、`backend/src/AiDaily.Application/Articles/ArticleQueryService.cs`、`backend/tests/AiDaily.UnitTests` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
 | S2-3a rejected metadata | `backend/src/AiDaily.Infrastructure/FeedCrawler`、`docs/feed-source-policy.md` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
+| S2-4 source/content quality | `backend/src/AiDaily.Infrastructure/FeedCrawler/SeedFeedSources.cs`、`backend/src/AiDaily.Infrastructure/FeedCrawler/FeedArticleQualityFilter.cs`、`backend/src/AiDaily.Infrastructure/ContentExtraction`、`backend/src/AiDaily.Infrastructure/AI`、`backend/tests/AiDaily.UnitTests` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
 | S1 cursor hardening | `backend/src/AiDaily.Application/Articles`、`frontend/src/stores/articleStore.ts` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
 
 ## 切片
@@ -589,11 +618,13 @@ git_flow_classification:
 
 - Clean text 與 AI prompt input 缺長度/token budget 上限。
 - Content extraction result 尚未持久化到 PostgreSQL。
+- 目前 HTML extraction 仍是簡化版清理，不是 readability-grade extractor；可能把 navigation、cookie、related posts、短摘要或低密度正文誤判為可分析內容。
 
 #### Next actions
 
 - 加入 deterministic truncation，並記錄內容是否被截斷。
 - 在 persistence baseline 中保存 content status、content text、extractedAt 與 source fallback metadata。
+- 另開 S2-4 處理 source/content quality gate，避免爛正文或低訊號來源進入 AI summary/report 的主要輸入。
 
 ### S2-2. Cold start feed sync UX 與同步邊界回補
 
@@ -737,6 +768,62 @@ S2-3b 是針對目前 feed 低價值感的最小可執行修正；它只處理 d
   - 付費 search/news API。
   - 大規模新增或替換 feed sources；source expansion 可在 gate 穩定後另開 follow-up。
 - reason_first: 目前文章低價值的核心不是缺少 AI 產生能力，而是 deterministic gate 太容易被 source metadata 放行，且 reader feed 排序過度偏向新鮮度；先修 gate 與排序，才能避免後續 summary/report 把成本花在低訊號文章上。
+
+### S2-4. Source/content quality upgrade
+
+- backfills: `S2. 文章詳情與來源匯入`、`S3. AI 摘要預覽`、`S4. Deep AI report`
+- source_gap: S2-3 已讓低訊號 candidate 較難進 feed，但目前 sources 仍偏少且混入 aggregator/newsletter/watch 類低訊號來源；HTML extraction 也仍可能把短摘要、導覽文字、cookie/subscribe/related-posts 等雜訊標成 `full_content_ready`，導致 AI summary/report 拿到的實際內容仍很爛。
+- why_now: AINEWS 的價值不該只是「抓到 AI 相關 RSS」，而是餵給使用者與 AI 生成流程值得分析的文章。若 source 與 content quality 不升級，後續 prompt、summary 或 report 調校只是在包裝低品質輸入。
+- git_flow_classification:
+  ```yaml
+  base_branch: main
+  branch_type: feature
+  suggested_branch_name: feature/s2-4-source-content-quality
+  reason: "Improves source selection, source tier thresholds, and extracted content quality gates after S2-3 relevance/ranking hardening."
+  ```
+- user_flow: 使用者打開 Dashboard 或產生 AI summary/report 時，看到的是高訊號來源、可讀正文或明確 fallback 的文章；系統不再把短摘要、RSS 片段或頁面雜訊偽裝成完整原文。
+- files_or_areas:
+  - `backend/src/AiDaily.Infrastructure/FeedCrawler/SeedFeedSources.cs`
+  - `backend/src/AiDaily.Infrastructure/FeedCrawler/FeedArticleQualityFilter.cs`
+  - `backend/src/AiDaily.Infrastructure/FeedCrawler/RssFeedCrawler.cs`
+  - `backend/src/AiDaily.Infrastructure/ContentExtraction`
+  - `backend/src/AiDaily.Infrastructure/AI`
+  - `backend/tests/AiDaily.UnitTests`
+  - `docs/feed-source-policy.md`
+- acceptance:
+  - Seed feed sources 採「少而精」策略：優先官方 AI lab/product/research/policy/engineering feeds 與少量高品質 AI topic feeds；明顯低訊號 aggregator/newsletter/watch source 要移除、停用或降低 tier。
+  - Source tier threshold 有明確 deterministic 規則；`watch` 或 aggregator 類來源必須有更高分數或更強 title/summary/sourceUrl 訊號才能進一般 reader feed。
+  - Content extraction 必須有 deterministic quality gate，例如 minimum clean text length、noise phrase rejection、clean text 與 fallback summary 區分、或正文密度檢查。
+  - 過短正文、RSS summary fallback、cookie/subscribe/related-posts/navigation/sidebar 類雜訊不得標成 `full_content_ready`。
+  - AI summary/report prompt input 只在 `contentStatus == full_content_ready` 時宣稱使用完整原文；`summary_fallback` 或 `extraction_failed` 必須維持保守文案與 fallback behavior。
+  - 補測試：低品質 HTML 不應標成 full content；可讀 HTML fixture 應保留正文並移除 nav/sidebar/cookie 雜訊；watch source 低訊號候選應被 rejected 或低於 reader threshold。
+  - 保留 S2-3b relevance/ranking 測試、S2-3a logs-only deferral 文件語意、既有 extraction failure fallback 測試。
+- not_included:
+  - Rejected candidate audit persistence 或 rejected admin/debug UI。
+  - LLM-based ranking、LLM source scoring 或個人化推薦。
+  - 大規模 source expansion；本 slice 只做小規模高訊號來源替換/補強與低訊號來源降級。
+  - 付費 search/news API、browser-based scraping、反 bot 繞過或需要 JavaScript 執行的來源。
+  - PostgreSQL persistence baseline、cursor hardening、bookmark/hidden personalization。
+- reason_first: S2-3 解決「低訊號 candidate 太容易進 feed」；S2-4 解決「進來的來源與正文仍不值得分析」。先建立 source/content quality gate，AINEWS 才能從 RSS reader 變成可信的 AI news signal pipeline。
+
+#### Current implementation
+
+- S2-3b 已有 deterministic relevance gate、quality threshold 與同日內 quality-first reader sorting。
+- `HtmlArticleContentExtractor` 可移除部分 script/style/navigation 並 fallback 到 RSS summary。
+- AI summary/report 已能根據 content status 避免宣稱 fallback summary 是完整原文。
+
+#### Known gaps
+
+- Seed sources 仍偏少，且 watch/aggregator/newsletter 類來源可能讓產品體感偏低價值。
+- Content extraction 尚未有正文長度、正文密度、noise phrase 或 summary-vs-full-content 的品質門檻。
+- `full_content_ready` 目前可能代表「HTML 清掉 tag 後有文字」，不保證是可分析的主文。
+- 目前沒有 content quality score、extraction quality reason 或足夠測試 fixture 來區分可讀正文與頁面雜訊。
+
+#### Next actions
+
+- 先做小規模高訊號 source catalog 調整，不追求大量來源。
+- 加入 content quality gate，讓低品質抽文降級為 `summary_fallback` 或 `extraction_failed`。
+- 補 extraction fixture tests 與 watch source threshold tests。
 
 ### S3-1. AI quick summary state sync 與 cache correctness
 
@@ -1035,6 +1122,7 @@ next_order:
   - S3-1. AI quick summary state sync 與 cache correctness
   - S2-3b. Feed relevance gate and ranking hardening
   - S2-3a. Rejected candidate metadata decision
+  - S2-4. Source/content quality upgrade
   - S1 follow-up. Reader list cursor hardening
 s5_handoff:
   execution_rule: "Use the same feature branch, but run one slice per build-and-learn-loop pass; do not merge S5 and S5-1 into one implementation pass."
