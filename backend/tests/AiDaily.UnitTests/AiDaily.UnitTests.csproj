@@ -7,6 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.11" />
     <ProjectReference Include="..\..\src\AiDaily.API\AiDaily.API.csproj" />
     <ProjectReference Include="..\..\src\AiDaily.Application\AiDaily.Application.csproj" />
     <ProjectReference Include="..\..\src\AiDaily.Domain\AiDaily.Domain.csproj" />

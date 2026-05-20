@@ -10,9 +10,12 @@ using AiDaily.Infrastructure.AI;
 using AiDaily.Infrastructure.Cache;
 using AiDaily.Infrastructure.ContentExtraction;
 using AiDaily.Infrastructure.FeedCrawler;
+using AiDaily.Infrastructure.Persistence;
 using AiDaily.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using System.Net;
 using System.Text.Json;
 
@@ -31,6 +34,8 @@ await ShouldReturnNullForMissingArticle();
 await ShouldSanitizeExtractedArticleContent();
 await ShouldFallbackWhenContentExtractionFails();
 await ShouldCrawlRssIntoArticles();
+await ShouldPersistArticlesAcrossDbContextRestart();
+await ShouldPersistFeedMetadataAcrossDbContextRestart();
 await ShouldScanBeyondFirstTenLowValueCandidates();
 await ShouldExcludeRejectedArticlesFromArticleList();
 await ShouldUseIngestionQualityAsArticleListTieBreaker();
@@ -196,6 +201,130 @@ async Task ShouldCrawlRssIntoArticles()
     Assert(imported.IngestionScore > 0, "crawler should save ingestion score metadata");
     Assert(imported.MatchedKeywords.Count > 0, "crawler should save matched keyword metadata");
     Assert(imported.SourceQualityTier.Length > 0, "crawler should save source quality tier metadata");
+}
+
+async Task ShouldPersistArticlesAcrossDbContextRestart()
+{
+    await using var connection = new SqliteConnection("DataSource=:memory:");
+    await connection.OpenAsync();
+    var options = new DbContextOptionsBuilder<AiDailyDbContext>()
+        .UseSqlite(connection)
+        .Options;
+
+    await using (var dbContext = new AiDailyDbContext(options))
+    {
+        await dbContext.Database.EnsureCreatedAsync();
+        var dbRepository = new EfCoreArticleRepository(dbContext);
+
+        await dbRepository.UpsertAsync(new Article
+        {
+            Id = "rss_persist_1",
+            Title = "OpenAI model persistence baseline",
+            Summary = "RSS sync should survive API restarts.",
+            Content = "Full content",
+            ContentText = "Full content text",
+            ContentStatus = "full_content_ready",
+            ContentExtractedAt = DateTimeOffset.Parse("2026-05-13T08:00:00Z"),
+            SourceUrl = "https://example.com/persisted-ai-story",
+            SourceId = "example-feed",
+            SourceName = "Example Feed",
+            Tags = ["openai", "model"],
+            IngestionScore = 91,
+            MatchedKeywords = ["openai", "model"],
+            SourceQualityTier = "core",
+            PublishedAt = DateTimeOffset.Parse("2026-05-13T07:30:00Z"),
+            HasAiSummary = false,
+            IsBookmarked = false,
+            ReadTimeMinutes = 4
+        }, CancellationToken.None);
+
+        await dbRepository.UpsertAsync(new Article
+        {
+            Id = "rss_persist_2",
+            Title = "Updated OpenAI model persistence baseline",
+            Summary = "The same source URL should update instead of duplicating.",
+            Content = "Updated content",
+            ContentText = "Updated content text",
+            ContentStatus = "summary_fallback",
+            ContentExtractedAt = DateTimeOffset.Parse("2026-05-13T08:05:00Z"),
+            SourceUrl = "https://example.com/persisted-ai-story",
+            SourceId = "example-feed",
+            SourceName = "Example Feed",
+            Tags = ["openai"],
+            IngestionScore = 82,
+            MatchedKeywords = ["openai"],
+            SourceQualityTier = "core",
+            PublishedAt = DateTimeOffset.Parse("2026-05-13T07:30:00Z"),
+            HasAiSummary = false,
+            IsBookmarked = false,
+            ReadTimeMinutes = 3
+        }, CancellationToken.None);
+    }
+
+    await using (var restartedContext = new AiDailyDbContext(options))
+    {
+        var sourceUrlIndex = restartedContext.Model.FindEntityType(typeof(Article))
+            ?.GetIndexes()
+            .FirstOrDefault(index => index.Properties.Any(property => property.Name == nameof(Article.SourceUrl)));
+        var restartedRepository = new EfCoreArticleRepository(restartedContext);
+        var articles = await restartedRepository.ListAsync(CancellationToken.None);
+        var article = articles.Single(item => item.SourceUrl == "https://example.com/persisted-ai-story");
+
+        Assert(sourceUrlIndex?.IsUnique == true, "Article.SourceUrl should have a unique EF index");
+        Assert(articles.Count(item => item.SourceUrl == "https://example.com/persisted-ai-story") == 1, "DB article repository should upsert by source URL");
+        Assert(article.Id == "rss_persist_2", "DB article repository should keep the latest article identity for a source URL");
+        Assert(article.ContentStatus == "summary_fallback", "DB article repository should persist content status");
+        Assert(article.ContentText == "Updated content text", "DB article repository should persist content text");
+        Assert(article.ContentExtractedAt is not null, "DB article repository should persist content extraction timestamp");
+        Assert(article.IngestionScore == 82, "DB article repository should persist ingestion score");
+        Assert(article.MatchedKeywords.SequenceEqual(["openai"]), "DB article repository should persist matched keywords");
+        Assert(article.SourceQualityTier == "core", "DB article repository should persist source quality tier");
+    }
+}
+
+async Task ShouldPersistFeedMetadataAcrossDbContextRestart()
+{
+    await using var connection = new SqliteConnection("DataSource=:memory:");
+    await connection.OpenAsync();
+    var options = new DbContextOptionsBuilder<AiDailyDbContext>()
+        .UseSqlite(connection)
+        .Options;
+
+    var crawledAt = DateTimeOffset.Parse("2026-05-13T09:00:00Z");
+    await using (var dbContext = new AiDailyDbContext(options))
+    {
+        await dbContext.Database.EnsureCreatedAsync();
+        var catalog = new EfCoreFeedSourceCatalog(dbContext);
+        await catalog.SaveAsync(new FeedSource
+        {
+            Id = "persisted-feed",
+            Name = "Persisted Feed",
+            FeedUrl = "https://example.com/rss.xml",
+            SiteUrl = "https://example.com",
+            SourceType = "rss",
+            TopicScope = "ai-news",
+            DefaultCandidateLimit = 15,
+            SourceQualityTier = "core",
+            QualityNotes = "Persistence test source.",
+            IsEnabled = true,
+            LastCrawledAt = crawledAt
+        }, CancellationToken.None);
+    }
+
+    await using (var restartedContext = new AiDailyDbContext(options))
+    {
+        var feedUrlIndex = restartedContext.Model.FindEntityType(typeof(FeedSource))
+            ?.GetIndexes()
+            .FirstOrDefault(index => index.Properties.Any(property => property.Name == nameof(FeedSource.FeedUrl)));
+        var restartedCatalog = new EfCoreFeedSourceCatalog(restartedContext);
+        var sources = restartedCatalog.GetEnabledSources();
+        var source = sources.Single(item => item.Id == "persisted-feed");
+
+        Assert(feedUrlIndex?.IsUnique == true, "FeedSource.FeedUrl should have a unique EF index");
+        Assert(source.FeedUrl == "https://example.com/rss.xml", "DB feed catalog should persist feed URL metadata");
+        Assert(source.LastCrawledAt == crawledAt, "DB feed catalog should persist last crawled timestamp");
+        Assert(source.SourceQualityTier == "core", "DB feed catalog should persist source quality tier");
+    }
 }
 
 async Task ShouldScanBeyondFirstTenLowValueCandidates()

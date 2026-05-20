@@ -13,15 +13,18 @@ public sealed class RssFeedCrawler : IFeedCrawler
     private readonly HttpClient _httpClient;
     private readonly IArticleRepository _articles;
     private readonly IArticleContentExtractor? _contentExtractor;
+    private readonly IFeedSourceMetadataRepository? _feedSourceMetadata;
 
     public RssFeedCrawler(
         HttpClient httpClient,
         IArticleRepository articles,
-        IArticleContentExtractor? contentExtractor = null)
+        IArticleContentExtractor? contentExtractor = null,
+        IFeedSourceMetadataRepository? feedSourceMetadata = null)
     {
         _httpClient = httpClient;
         _articles = articles;
         _contentExtractor = contentExtractor;
+        _feedSourceMetadata = feedSourceMetadata;
     }
 
     public async Task<FeedCrawlResult> CrawlAsync(
@@ -92,6 +95,11 @@ public sealed class RssFeedCrawler : IFeedCrawler
                 }
 
                 source.LastCrawledAt = DateTimeOffset.UtcNow;
+                if (_feedSourceMetadata is not null)
+                {
+                    await _feedSourceMetadata.SaveAsync(source, cancellationToken);
+                }
+
                 logs.Add($"Crawled {source.Name}: {items.Count} RSS candidates read.");
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Xml.XmlException)
