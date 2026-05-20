@@ -33,12 +33,14 @@ await ShouldRunExplicitFeedSync();
 await ShouldGetArticleById();
 await ShouldReturnNullForMissingArticle();
 await ShouldSanitizeExtractedArticleContent();
+await ShouldFallbackForLowQualityHtmlContent();
 await ShouldFallbackWhenContentExtractionFails();
 await ShouldCrawlRssIntoArticles();
 await ShouldPersistArticlesAcrossDbContextRestart();
 await ShouldPersistFeedMetadataAcrossDbContextRestart();
 await ShouldScanBeyondFirstTenLowValueCandidates();
 await ShouldRejectCandidateWhenOnlySourceMetadataContainsAi();
+await ShouldRejectWeakWatchSourceCandidate();
 await ShouldExcludeRejectedArticlesFromArticleList();
 await ShouldUseQualityBeforeRecencyWithinArticleListDay();
 await ShouldGetAiSummaryPreview();
@@ -55,6 +57,7 @@ await ShouldRateLimitAiReportPerUserAndArticle();
 await ShouldWriteVersionedMvpSseContract();
 await ShouldReturnDocumentedRateLimitError();
 await ShouldBoundGeminiReportPromptContent();
+await ShouldMarkFallbackReportPromptAsNotFullContent();
 await ShouldRejectInvalidAiReportDraft();
 await ShouldNormalizeSparseAiReportDraft();
 await ShouldBookmarkArticleForLocalUser();
@@ -152,8 +155,13 @@ async Task ShouldSanitizeExtractedArticleContent()
           <body>
             <nav>Home Pricing</nav>
             <article>
+              <div class="cookie-banner">Accept cookies before reading this site.</div>
               <h1>Readable AI article</h1>
-              <p>Models improved &amp; teams can inspect the clean source text.</p>
+              <p>OpenAI researchers published a detailed model safety benchmark for evaluating agent behavior in production-like tool workflows.</p>
+              <p>The article explains how teams compare LLM reasoning, tool-use reliability, and safety outcomes across repeated evaluation runs.</p>
+              <p>Engineering leaders can use the clean source text to decide whether the benchmark is relevant for deployment monitoring and release gates.</p>
+              <p>Product teams also get concrete context about model evaluation tradeoffs, limitations, and follow-up work needed before operational rollout.</p>
+              <aside>Related posts and share buttons should not appear in extracted text.</aside>
             </article>
           </body>
         </html>
@@ -165,8 +173,35 @@ async Task ShouldSanitizeExtractedArticleContent()
 
     Assert(result.Status == "full_content_ready", "extractor should mark readable HTML as full content");
     Assert(result.ContentText?.Contains("Readable AI article") == true, "extractor should preserve readable text");
+    Assert(result.ContentText?.Contains("production-like tool workflows") == true, "extractor should preserve main article text");
     Assert(result.ContentText?.Contains("alert") == false, "extractor should remove script content");
     Assert(result.ContentText?.Contains("Home Pricing") == false, "extractor should remove navigation content");
+    Assert(result.ContentText?.Contains("Accept cookies") == false, "extractor should remove cookie banner content");
+    Assert(result.ContentText?.Contains("Related posts") == false, "extractor should remove sidebar content");
+}
+
+async Task ShouldFallbackForLowQualityHtmlContent()
+{
+    const string html = """
+        <html>
+          <body>
+            <nav>Home Pricing Docs</nav>
+            <article>
+              <h1>AI update</h1>
+              <p>Fallback summary</p>
+              <div class="related-posts">Related posts and recommended stories.</div>
+              <div class="cookie-banner">Accept cookies and subscribe to continue.</div>
+            </article>
+          </body>
+        </html>
+        """;
+
+    using var httpClient = new HttpClient(new StaticRssHandler(html));
+    var extractor = new HtmlArticleContentExtractor(httpClient);
+    var result = await extractor.ExtractAsync("https://example.com/short-story", "Fallback summary", CancellationToken.None);
+
+    Assert(result.Status == "summary_fallback", "low-quality HTML should not be marked as full content");
+    Assert(result.ContentText == "Fallback summary", "low-quality HTML should preserve the RSS summary fallback");
 }
 
 async Task ShouldFallbackWhenContentExtractionFails()
@@ -415,6 +450,42 @@ async Task ShouldRejectCandidateWhenOnlySourceMetadataContainsAi()
     Assert(result.ArticlesPersisted == 0, "source metadata containing AI should not make a candidate relevant without content or URL signal");
     Assert(result.Logs.Any(log => log.Contains("not_ai_related", StringComparison.OrdinalIgnoreCase)), "crawler should log deterministic not-ai rejection");
     Assert(articles.All(article => article.SourceUrl != "https://example.com/pricing-roundup"), "irrelevant candidate should not be persisted");
+}
+
+async Task ShouldRejectWeakWatchSourceCandidate()
+{
+    const string rss = """
+        <rss version="2.0">
+          <channel>
+            <item>
+              <title>AI platform update</title>
+              <link>https://example.com/ai-platform-update</link>
+              <description>AI teams share a short enterprise update about internal plans and general industry momentum.</description>
+              <pubDate>Tue, 12 May 2026 07:30:00 GMT</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """;
+
+    var localRepository = new InMemoryArticleRepository();
+    using var httpClient = new HttpClient(new StaticRssHandler(rss));
+    var crawler = new RssFeedCrawler(httpClient, localRepository);
+    var result = await crawler.CrawlAsync([
+        new FeedSource
+        {
+            Id = "watch-source",
+            Name = "Watch Source",
+            FeedUrl = "https://example.com/rss.xml",
+            TopicScope = "ai-newsletter",
+            DefaultCandidateLimit = 10,
+            SourceQualityTier = "watch"
+        }
+    ]);
+    var articles = await localRepository.ListAsync(CancellationToken.None);
+
+    Assert(result.ArticlesPersisted == 0, "watch sources should reject generic AI-only candidates");
+    Assert(result.Logs.Any(log => log.Contains("weak_watch_source_signal", StringComparison.OrdinalIgnoreCase)), "watch source rejection should be deterministic");
+    Assert(articles.All(article => article.SourceUrl != "https://example.com/ai-platform-update"), "weak watch source candidate should not be persisted");
 }
 
 async Task ShouldExcludeRejectedArticlesFromArticleList()
@@ -824,7 +895,29 @@ Task ShouldBoundGeminiReportPromptContent()
     var prompt = GeminiAiReportGenerator.BuildPrompt(article);
 
     Assert(prompt.Contains(new string('A', GeminiAiReportGenerator.MaxPromptContentCharacters)), "prompt should include bounded source content");
+    Assert(prompt.Contains("contentBasis: full imported source text"), "full content prompts should identify full source basis");
     Assert(!prompt.Contains(new string('A', GeminiAiReportGenerator.MaxPromptContentCharacters + 1)), "prompt should cap source content deterministically");
+    return Task.CompletedTask;
+}
+
+Task ShouldMarkFallbackReportPromptAsNotFullContent()
+{
+    var article = new Article
+    {
+        Id = "art_fallback",
+        Title = "Fallback source article",
+        Summary = "Fallback summary only",
+        SourceUrl = "https://example.com/fallback",
+        SourceName = "Example",
+        Tags = ["model"],
+        PublishedAt = DateTimeOffset.Parse("2026-05-13T00:00:00Z"),
+        ContentStatus = "summary_fallback",
+        ContentText = "Fallback summary only"
+    };
+
+    var prompt = GeminiAiReportGenerator.BuildPrompt(article);
+
+    Assert(prompt.Contains("summary/source metadata fallback; do not claim full-article analysis"), "fallback prompts should not claim full source content");
     return Task.CompletedTask;
 }
 

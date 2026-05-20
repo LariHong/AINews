@@ -60,10 +60,14 @@ public sealed class GeminiAiReportGenerator : IAiReportGenerator
 
     public static string BuildPrompt(Article article)
     {
+        var hasFullContent = article.ContentStatus == "full_content_ready";
         var contentText = article.ContentText ?? article.Summary ?? "No article content was imported.";
         var boundedContent = contentText.Length > MaxPromptContentCharacters
             ? contentText[..MaxPromptContentCharacters]
             : contentText;
+        var contentBasis = hasFullContent
+            ? "full imported source text"
+            : "summary/source metadata fallback; do not claim full-article analysis";
 
         return
         $$"""
@@ -92,6 +96,7 @@ public sealed class GeminiAiReportGenerator : IAiReportGenerator
         publishedAt: {{article.PublishedAt:O}}
         tags: {{string.Join(", ", article.Tags)}}
         contentStatus: {{article.ContentStatus}}
+        contentBasis: {{contentBasis}}
         contentText: {{boundedContent}}
         """;
     }

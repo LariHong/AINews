@@ -4,8 +4,6 @@ namespace AiDaily.Infrastructure.FeedCrawler;
 
 internal static class FeedArticleQualityFilter
 {
-    private const int MinimumAcceptedScore = 70;
-
     private static readonly string[] AiKeywords =
     [
         "ai",
@@ -87,11 +85,16 @@ internal static class FeedArticleQualityFilter
                 ContainsKeyword(summaryText, keyword));
         var hasGenericAiOnlySignal = matchedKeywords.Count == 1 &&
             matchedKeywords[0].Equals("ai", StringComparison.OrdinalIgnoreCase);
+        var isWatchLikeSource = source.SourceQualityTier.Equals("watch", StringComparison.OrdinalIgnoreCase) ||
+            source.SourceType.Contains("aggregator", StringComparison.OrdinalIgnoreCase) ||
+            source.TopicScope.Contains("aggregation", StringComparison.OrdinalIgnoreCase) ||
+            source.TopicScope.Contains("newsletter", StringComparison.OrdinalIgnoreCase);
 
         var tierBonus = source.SourceQualityTier switch
         {
             "core" => 15,
-            "watch" => 8,
+            "standard" => 6,
+            "watch" => 0,
             _ => 0
         };
         var score = 45 +
@@ -106,6 +109,11 @@ internal static class FeedArticleQualityFilter
             score -= 12;
         }
 
+        if (isWatchLikeSource)
+        {
+            score -= 8;
+        }
+
         if (Uri.TryCreate(sourceUrl, UriKind.Absolute, out var uri) &&
             uri.AbsolutePath.Contains("tag", StringComparison.OrdinalIgnoreCase))
         {
@@ -113,10 +121,24 @@ internal static class FeedArticleQualityFilter
         }
 
         score = Math.Min(score, 100);
-        return score >= MinimumAcceptedScore
+        if (isWatchLikeSource && strongSignalMatches == 0)
+        {
+            return FeedArticleQualityResult.Rejected("weak_watch_source_signal", matchedKeywords);
+        }
+
+        return score >= MinimumAcceptedScore(source)
             ? FeedArticleQualityResult.Accepted(score, matchedKeywords)
             : FeedArticleQualityResult.Rejected("below_quality_threshold", matchedKeywords);
     }
+
+    private static int MinimumAcceptedScore(FeedSource source) =>
+        source.SourceQualityTier switch
+        {
+            "core" => 70,
+            "standard" => 78,
+            "watch" => 85,
+            _ => 80
+        };
 
     private static bool ContainsKeyword(string value, string keyword)
     {
