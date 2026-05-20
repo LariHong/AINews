@@ -26,12 +26,36 @@ public sealed record ArticleContentExtractionResult(
 
 public sealed class HtmlArticleContentExtractor : IArticleContentExtractor
 {
+    private const int MinimumFullContentCharacters = 320;
+    private const int MinimumFullContentWords = 45;
+
     private static readonly Regex RemovedBlocks = new(
-        @"<(script|style|nav|header|footer|aside|form|svg|noscript)\b[^>]*>.*?</\1>",
+        @"<(script|style|nav|header|footer|aside|form|svg|noscript|button)\b[^>]*>.*?</\1>",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static readonly Regex AttributeNoiseBlocks = new(
+        @"<(div|section|aside)[^>]*(class|id)=[""'][^""']*(cookie|subscribe|related|sidebar|promo|newsletter|share)[^""']*[""'][^>]*>.*?</\1>",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static readonly Regex PrimaryContentBlock = new(
+        @"<(article|main)\b[^>]*>(.*?)</\1>",
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
 
     private static readonly Regex Tags = new("<[^>]+>", RegexOptions.Compiled);
     private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
+
+    private static readonly string[] NoisePhrases =
+    [
+        "accept cookies",
+        "cookie settings",
+        "privacy policy",
+        "subscribe",
+        "sign up",
+        "related posts",
+        "recommended stories",
+        "share this",
+        "advertisement"
+    ];
 
     private readonly HttpClient _httpClient;
 
@@ -55,7 +79,7 @@ public sealed class HtmlArticleContentExtractor : IArticleContentExtractor
             var html = await _httpClient.GetStringAsync(uri, cancellationToken);
             var cleanText = ExtractReadableText(html);
 
-            if (string.IsNullOrWhiteSpace(cleanText))
+            if (!IsHighQualityFullContent(cleanText, fallbackSummary))
             {
                 return ArticleContentExtractionResult.SummaryFallback(fallbackSummary);
             }
@@ -79,7 +103,10 @@ public sealed class HtmlArticleContentExtractor : IArticleContentExtractor
             return string.Empty;
         }
 
-        var withoutBlocks = RemovedBlocks.Replace(html, " ");
+        var primaryMatch = PrimaryContentBlock.Match(html);
+        var sourceHtml = primaryMatch.Success ? primaryMatch.Groups[2].Value : html;
+        var withoutBlocks = RemovedBlocks.Replace(sourceHtml, " ");
+        withoutBlocks = AttributeNoiseBlocks.Replace(withoutBlocks, " ");
         var withBreaks = Regex.Replace(
             withoutBlocks,
             @"</?(p|br|div|section|article|li|h[1-6])\b[^>]*>",
@@ -90,4 +117,37 @@ public sealed class HtmlArticleContentExtractor : IArticleContentExtractor
 
         return Whitespace.Replace(decoded, " ").Trim();
     }
+
+    private static bool IsHighQualityFullContent(string cleanText, string? fallbackSummary)
+    {
+        if (string.IsNullOrWhiteSpace(cleanText))
+        {
+            return false;
+        }
+
+        var wordCount = cleanText.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        if (cleanText.Length < MinimumFullContentCharacters || wordCount < MinimumFullContentWords)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(fallbackSummary))
+        {
+            var normalizedText = NormalizeForComparison(cleanText);
+            var normalizedFallback = NormalizeForComparison(fallbackSummary);
+            if (normalizedText.Equals(normalizedFallback, StringComparison.OrdinalIgnoreCase) ||
+                (normalizedText.Contains(normalizedFallback, StringComparison.OrdinalIgnoreCase) &&
+                 cleanText.Length <= fallbackSummary.Length + 120))
+            {
+                return false;
+            }
+        }
+
+        var noiseHits = NoisePhrases.Count(phrase =>
+            cleanText.Contains(phrase, StringComparison.OrdinalIgnoreCase));
+        return noiseHits < 2;
+    }
+
+    private static string NormalizeForComparison(string value) =>
+        Whitespace.Replace(value.Trim(), " ");
 }

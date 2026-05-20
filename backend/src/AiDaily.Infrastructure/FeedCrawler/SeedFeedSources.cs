@@ -8,15 +8,39 @@ public static class SeedFeedSources
     [
         new FeedSource
         {
-            Id = "venturebeat-ai",
-            Name = "VentureBeat AI",
-            FeedUrl = "https://venturebeat.com/category/ai/feed/",
-            SiteUrl = "https://venturebeat.com/category/ai/",
+            Id = "openai-news",
+            Name = "OpenAI News",
+            FeedUrl = "https://openai.com/news/rss.xml",
+            SiteUrl = "https://openai.com/news/",
             SourceType = "rss",
-            TopicScope = "ai-news",
-            DefaultCandidateLimit = 30,
+            TopicScope = "ai-lab-product-research-policy",
+            DefaultCandidateLimit = 20,
             SourceQualityTier = "core",
-            QualityNotes = "AI category feed with product, startup, and enterprise AI news."
+            QualityNotes = "Official OpenAI feed; prioritize product, research, safety, policy, and infrastructure updates."
+        },
+        new FeedSource
+        {
+            Id = "google-deepmind-blog",
+            Name = "Google DeepMind Blog",
+            FeedUrl = "https://deepmind.google/blog/rss.xml",
+            SiteUrl = "https://deepmind.google/blog/",
+            SourceType = "rss",
+            TopicScope = "ai-research-lab",
+            DefaultCandidateLimit = 20,
+            SourceQualityTier = "core",
+            QualityNotes = "Official Google DeepMind research and product updates; high signal for model, safety, and research coverage."
+        },
+        new FeedSource
+        {
+            Id = "microsoft-ai-blog",
+            Name = "Microsoft AI Blog",
+            FeedUrl = "https://blogs.microsoft.com/ai/feed/",
+            SiteUrl = "https://blogs.microsoft.com/ai/",
+            SourceType = "rss",
+            TopicScope = "ai-product-policy-engineering",
+            DefaultCandidateLimit = 20,
+            SourceQualityTier = "core",
+            QualityNotes = "Official Microsoft AI blog; useful for enterprise AI, Copilot, responsible AI, and product strategy updates."
         },
         new FeedSource
         {
@@ -27,32 +51,8 @@ public static class SeedFeedSources
             SourceType = "rss",
             TopicScope = "ai-ml-data-engineering",
             DefaultCandidateLimit = 25,
-            SourceQualityTier = "core",
-            QualityNotes = "Topic feed focused on AI, ML, and data engineering news."
-        },
-        new FeedSource
-        {
-            Id = "machine-brief",
-            Name = "Machine Brief",
-            FeedUrl = "https://www.machinebrief.com/rss.xml",
-            SiteUrl = "https://www.machinebrief.com/",
-            SourceType = "rss",
-            TopicScope = "ai-newsletter",
-            DefaultCandidateLimit = 20,
-            SourceQualityTier = "watch",
-            QualityNotes = "Newsletter-style source; filter housekeeping and sponsor posts aggressively."
-        },
-        new FeedSource
-        {
-            Id = "planet-ai",
-            Name = "Planet AI",
-            FeedUrl = "https://planet-ai.net/rss.xml",
-            SiteUrl = "https://planet-ai.net/",
-            SourceType = "rss",
-            TopicScope = "ai-aggregation",
-            DefaultCandidateLimit = 25,
-            SourceQualityTier = "watch",
-            QualityNotes = "Aggregator source; candidate depth helps recover useful AI posts after low-value items."
+            SourceQualityTier = "standard",
+            QualityNotes = "High-quality engineering topic feed; keep as a non-official source with stricter threshold than official lab/product feeds."
         }
     ];
 }
