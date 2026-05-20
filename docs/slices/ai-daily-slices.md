@@ -810,6 +810,7 @@ S2-3b 是針對目前 feed 低價值感的最小可執行修正；它只處理 d
 
 - S2-3b 已有 deterministic relevance gate、tier-aware quality threshold 與同日內 quality-first reader sorting。
 - Seed catalog 已改為少量高訊號來源：OpenAI News、Google DeepMind Blog、Microsoft AI Blog、Google AI Blog、Hugging Face Blog 與 InfoQ AI/ML/Data Engineering；低訊號 aggregator/newsletter/watch 類來源不在目前 reader seed set。
+- DB-backed feed source catalog 啟動時會同步目前 seed catalog：新增或更新 S2-4 seed sources、停用明確退役的低訊號舊 seed sources，並保留既有 `LastCrawledAt` metadata，避免舊 DB 只沿用 S2-4 之前的少量來源。
 - RSS crawler 與 HTML extractor 會送出 explicit User-Agent / Accept headers，降低正常 feed 或文章頁被無差別拒絕的機率；若文章頁回 401/403/429，系統保守降級為 `summary_fallback`，不標成 `full_content_ready`。
 - `HtmlArticleContentExtractor` 已加入 deterministic content quality gate：過短 clean text、低 word count、與 RSS summary 近似、或含多個 cookie/subscribe/related/sidebar 類 noise phrase 的內容會降級為 `summary_fallback`。
 - AI report prompt 已明確標示 content basis；只有 `contentStatus == full_content_ready` 會被視為完整原文，`summary_fallback` 不得宣稱 full-article analysis。
