@@ -8,6 +8,7 @@ namespace AiDaily.Infrastructure.AI;
 
 public sealed class GeminiAiReportGenerator : IAiReportGenerator
 {
+    public const int MaxPromptContentCharacters = 12000;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly HttpClient _httpClient;
@@ -57,7 +58,14 @@ public sealed class GeminiAiReportGenerator : IAiReportGenerator
         return draft ?? throw new InvalidOperationException("AI_REPORT_INVALID_FORMAT");
     }
 
-    private static string BuildPrompt(Article article) =>
+    public static string BuildPrompt(Article article)
+    {
+        var contentText = article.ContentText ?? article.Summary ?? "No article content was imported.";
+        var boundedContent = contentText.Length > MaxPromptContentCharacters
+            ? contentText[..MaxPromptContentCharacters]
+            : contentText;
+
+        return
         $$"""
         You are generating a structured AI news report for a frontend UI.
         Use only the article data below. Do not invent dates, URLs, authors, companies, or claims that are not supported.
@@ -84,8 +92,9 @@ public sealed class GeminiAiReportGenerator : IAiReportGenerator
         publishedAt: {{article.PublishedAt:O}}
         tags: {{string.Join(", ", article.Tags)}}
         contentStatus: {{article.ContentStatus}}
-        contentText: {{article.ContentText ?? article.Summary ?? "No article content was imported."}}
+        contentText: {{boundedContent}}
         """;
+    }
 
     private static string ToProviderErrorCode(HttpStatusCode statusCode) =>
         statusCode switch

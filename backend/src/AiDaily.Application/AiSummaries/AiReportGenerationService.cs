@@ -10,21 +10,25 @@ public sealed class AiReportGenerationService
     private readonly IAiReportRepository _reports;
     private readonly IAiReportGenerator _generator;
     private readonly IAiReportGenerationTracker _tracker;
+    private readonly IAiReportRateLimiter _rateLimiter;
 
     public AiReportGenerationService(
         IArticleRepository articles,
         IAiReportRepository reports,
         IAiReportGenerator generator,
-        IAiReportGenerationTracker tracker)
+        IAiReportGenerationTracker tracker,
+        IAiReportRateLimiter rateLimiter)
     {
         _articles = articles;
         _reports = reports;
         _generator = generator;
         _tracker = tracker;
+        _rateLimiter = rateLimiter;
     }
 
     public async Task<AiReportGenerationStartResult> StartAsync(
         string articleId,
+        string userId,
         bool force,
         CancellationToken cancellationToken = default)
     {
@@ -48,6 +52,13 @@ public sealed class AiReportGenerationService
         if (!_tracker.TryBegin(articleId))
         {
             return AiReportGenerationStartResult.InProgress();
+        }
+
+        var rateLimit = _rateLimiter.TryAcquire(userId, articleId);
+        if (!rateLimit.IsAllowed)
+        {
+            _tracker.Complete(articleId);
+            return AiReportGenerationStartResult.RateLimited(rateLimit.RetryAfter!.Value);
         }
 
         return AiReportGenerationStartResult.Ready(GenerateAsync(article, cancellationToken));
@@ -143,9 +154,9 @@ public sealed class AiReportGenerationService
     private static string ToProviderErrorMessage(string code) =>
         code switch
         {
-            "AI_PROVIDER_NOT_CONFIGURED" => "AI provider API key is not configured.",
+            "AI_PROVIDER_NOT_CONFIGURED" => "AI provider credentials are not configured.",
             "AI_REPORT_INVALID_FORMAT" => "AI provider returned a report that does not match the required schema.",
-            "AI_PROVIDER_AUTH_FAILED" => "AI provider rejected the API key or project permissions.",
+            "AI_PROVIDER_AUTH_FAILED" => "AI provider rejected the configured credentials or project permissions.",
             "AI_PROVIDER_RATE_LIMITED" => "AI provider rate limit or quota was reached.",
             "AI_PROVIDER_MODEL_UNAVAILABLE" => "AI provider model is unavailable or the request shape was rejected.",
             _ => "AI provider request failed."
@@ -154,7 +165,8 @@ public sealed class AiReportGenerationService
 
 public sealed record AiReportGenerationStartResult(
     AiReportGenerationStartStatus Status,
-    IAsyncEnumerable<AiReportStreamEvent>? Stream)
+    IAsyncEnumerable<AiReportStreamEvent>? Stream,
+    DateTimeOffset? RetryAfter = null)
 {
     public static AiReportGenerationStartResult Ready(IAsyncEnumerable<AiReportStreamEvent> stream) =>
         new(AiReportGenerationStartStatus.Ready, stream);
@@ -164,13 +176,17 @@ public sealed record AiReportGenerationStartResult(
 
     public static AiReportGenerationStartResult InProgress() =>
         new(AiReportGenerationStartStatus.InProgress, null);
+
+    public static AiReportGenerationStartResult RateLimited(DateTimeOffset retryAfter) =>
+        new(AiReportGenerationStartStatus.RateLimited, null, retryAfter);
 }
 
 public enum AiReportGenerationStartStatus
 {
     Ready,
     ArticleNotFound,
-    InProgress
+    InProgress,
+    RateLimited
 }
 
 public sealed record AiReportStreamEvent(string Type, string? Message, string? Code, AiReportDto? Report)

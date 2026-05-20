@@ -9,6 +9,7 @@ namespace AiDaily.API.Controllers;
 [Produces("application/json")]
 public sealed class AiSummaryController : ControllerBase
 {
+    private const string LocalUserHeader = "X-AI-Daily-Local-User";
     private readonly AiSummaryQueryService _summaryQueryService;
     private readonly AiSummaryGenerationService _summaryGenerationService;
     private readonly AiReportQueryService _reportQueryService;
@@ -98,7 +99,7 @@ public sealed class AiSummaryController : ControllerBase
         [FromQuery] bool force = false,
         CancellationToken cancellationToken = default)
     {
-        var result = await _reportGenerationService.StartAsync(articleId, force, cancellationToken);
+        var result = await _reportGenerationService.StartAsync(articleId, GetLocalUserId(), force, cancellationToken);
 
         if (result.Status == AiReportGenerationStartStatus.ArticleNotFound)
         {
@@ -114,6 +115,18 @@ public sealed class AiSummaryController : ControllerBase
                 $"AI report generation for article '{articleId}' is already running."));
         }
 
+        if (result.Status == AiReportGenerationStartStatus.RateLimited)
+        {
+            if (result.RetryAfter is { } retryAfter)
+            {
+                Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling((retryAfter - DateTimeOffset.UtcNow).TotalSeconds)).ToString();
+            }
+
+            return StatusCode(StatusCodes.Status429TooManyRequests, ApiErrorResponse.Fail(
+                "AI_RATE_LIMIT_EXCEEDED",
+                "AI report generation is temporarily rate limited for this user and article."));
+        }
+
         Response.Headers.CacheControl = "no-cache";
         Response.Headers.Connection = "keep-alive";
         Response.ContentType = "text/event-stream";
@@ -127,4 +140,9 @@ public sealed class AiSummaryController : ControllerBase
 
         return new EmptyResult();
     }
+
+    private string GetLocalUserId() =>
+        Request.Headers.TryGetValue(LocalUserHeader, out var value)
+            ? value.ToString()
+            : string.Empty;
 }

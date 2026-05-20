@@ -1,5 +1,6 @@
 import type { AiReport, AiReportStreamEvent, AiSummary } from '@/types/aiSummary'
 import type { ApiErrorResponse, ApiResponse } from '@/types/article'
+import { localUserHeaders } from '@/services/apiClient'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
@@ -49,6 +50,7 @@ export async function generateAiReport(
     method: 'POST',
     headers: {
       Accept: 'text/event-stream',
+      ...localUserHeaders(),
     },
   })
 
@@ -65,18 +67,13 @@ export async function generateAiReport(
     if (done) break
 
     buffer += decoder.decode(value, { stream: true })
-    const chunks = buffer.split('\n\n')
+    const chunks = splitSseChunks(buffer)
     buffer = chunks.pop() ?? ''
 
     for (const chunk of chunks) {
-      const data = chunk
-        .split('\n')
-        .find((line) => line.startsWith('data: '))
-        ?.slice(6)
+      const event = parseAiReportStreamEvent(chunk)
+      if (!event) continue
 
-      if (!data) continue
-
-      const event = JSON.parse(data) as AiReportStreamEvent
       onEvent(event)
 
       if (event.type === 'error') {
@@ -86,6 +83,23 @@ export async function generateAiReport(
       }
     }
   }
+}
+
+export function parseAiReportStreamEvent(chunk: string): AiReportStreamEvent | null {
+  const data = chunk
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trimStart())
+    .join('\n')
+
+  if (!data) return null
+
+  return JSON.parse(data) as AiReportStreamEvent
+}
+
+function splitSseChunks(buffer: string): string[] {
+  return buffer.replace(/\r\n/g, '\n').split('\n\n')
 }
 
 async function createApiError(response: Response, fallbackMessage: string): Promise<Error> {

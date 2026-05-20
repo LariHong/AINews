@@ -43,6 +43,7 @@ builder.Services.AddSingleton<IAiSummaryReadCache, InMemoryAiSummaryReadCache>()
 builder.Services.AddScoped<IAiSummaryGenerator, StubAiSummaryGenerator>();
 builder.Services.AddSingleton<IAiReportRepository, InMemoryAiReportRepository>();
 builder.Services.AddSingleton<IAiReportGenerationTracker, InMemoryAiReportGenerationTracker>();
+builder.Services.AddSingleton<IAiReportRateLimiter, InMemoryAiReportRateLimiter>();
 builder.Services.AddScoped<ArticleQueryService>();
 builder.Services.AddScoped<BookmarkService>();
 builder.Services.AddScoped<UserPreferenceService>();
