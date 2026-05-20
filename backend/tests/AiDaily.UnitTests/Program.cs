@@ -34,12 +34,14 @@ await ShouldGetArticleById();
 await ShouldReturnNullForMissingArticle();
 await ShouldSanitizeExtractedArticleContent();
 await ShouldFallbackForLowQualityHtmlContent();
+await ShouldUseSummaryFallbackWhenSourceBlocksExtraction();
 await ShouldFallbackWhenContentExtractionFails();
 await ShouldCrawlRssIntoArticles();
 await ShouldPersistArticlesAcrossDbContextRestart();
 await ShouldPersistFeedMetadataAcrossDbContextRestart();
 await ShouldScanBeyondFirstTenLowValueCandidates();
 await ShouldRejectCandidateWhenOnlySourceMetadataContainsAi();
+await ShouldAcceptCoreSourceShortNamedProductTitle();
 await ShouldRejectWeakWatchSourceCandidate();
 await ShouldExcludeRejectedArticlesFromArticleList();
 await ShouldUseQualityBeforeRecencyWithinArticleListDay();
@@ -202,6 +204,16 @@ async Task ShouldFallbackForLowQualityHtmlContent()
 
     Assert(result.Status == "summary_fallback", "low-quality HTML should not be marked as full content");
     Assert(result.ContentText == "Fallback summary", "low-quality HTML should preserve the RSS summary fallback");
+}
+
+async Task ShouldUseSummaryFallbackWhenSourceBlocksExtraction()
+{
+    using var httpClient = new HttpClient(new StatusCodeHandler(HttpStatusCode.Forbidden));
+    var extractor = new HtmlArticleContentExtractor(httpClient);
+    var result = await extractor.ExtractAsync("https://example.com/blocked", "Fallback summary", CancellationToken.None);
+
+    Assert(result.Status == "summary_fallback", "blocked source pages should use summary fallback instead of surfacing extraction failure");
+    Assert(result.ContentText == "Fallback summary", "blocked source fallback should preserve the RSS summary");
 }
 
 async Task ShouldFallbackWhenContentExtractionFails()
@@ -450,6 +462,41 @@ async Task ShouldRejectCandidateWhenOnlySourceMetadataContainsAi()
     Assert(result.ArticlesPersisted == 0, "source metadata containing AI should not make a candidate relevant without content or URL signal");
     Assert(result.Logs.Any(log => log.Contains("not_ai_related", StringComparison.OrdinalIgnoreCase)), "crawler should log deterministic not-ai rejection");
     Assert(articles.All(article => article.SourceUrl != "https://example.com/pricing-roundup"), "irrelevant candidate should not be persisted");
+}
+
+async Task ShouldAcceptCoreSourceShortNamedProductTitle()
+{
+    const string rss = """
+        <rss version="2.0">
+          <channel>
+            <item>
+              <title>Introducing Gemini Omni</title>
+              <link>https://deepmind.google/blog/introducing-gemini-omni/</link>
+              <description></description>
+              <pubDate>Tue, 12 May 2026 07:30:00 GMT</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """;
+
+    var localRepository = new InMemoryArticleRepository();
+    using var httpClient = new HttpClient(new StaticRssHandler(rss));
+    var crawler = new RssFeedCrawler(httpClient, localRepository);
+    var result = await crawler.CrawlAsync([
+        new FeedSource
+        {
+            Id = "core-source",
+            Name = "Core Source",
+            FeedUrl = "https://example.com/rss.xml",
+            TopicScope = "ai-research-lab",
+            DefaultCandidateLimit = 10,
+            SourceQualityTier = "core"
+        }
+    ]);
+    var articles = await localRepository.ListAsync(CancellationToken.None);
+
+    Assert(result.ArticlesPersisted == 1, "core official sources should accept short titles with strong named AI product signals");
+    Assert(articles.Any(article => article.SourceUrl == "https://deepmind.google/blog/introducing-gemini-omni/"), "accepted short named-product candidate should be persisted");
 }
 
 async Task ShouldRejectWeakWatchSourceCandidate()
@@ -1090,6 +1137,19 @@ internal sealed class ThrowingHandler : HttpMessageHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
         throw new HttpRequestException("network unavailable");
+}
+
+internal sealed class StatusCodeHandler : HttpMessageHandler
+{
+    private readonly HttpStatusCode _statusCode;
+
+    public StatusCodeHandler(HttpStatusCode statusCode)
+    {
+        _statusCode = statusCode;
+    }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        Task.FromResult(new HttpResponseMessage(_statusCode));
 }
 
 internal sealed class FixedTimeProvider : TimeProvider

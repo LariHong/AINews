@@ -808,22 +808,24 @@ S2-3b 是針對目前 feed 低價值感的最小可執行修正；它只處理 d
 
 #### Current implementation
 
-- S2-3b 已有 deterministic relevance gate、quality threshold 與同日內 quality-first reader sorting。
-- `HtmlArticleContentExtractor` 可移除部分 script/style/navigation 並 fallback 到 RSS summary。
-- AI summary/report 已能根據 content status 避免宣稱 fallback summary 是完整原文。
+- S2-3b 已有 deterministic relevance gate、tier-aware quality threshold 與同日內 quality-first reader sorting。
+- Seed catalog 已改為少量高訊號來源：OpenAI News、Google DeepMind Blog、Microsoft AI Blog、Google AI Blog、Hugging Face Blog 與 InfoQ AI/ML/Data Engineering；低訊號 aggregator/newsletter/watch 類來源不在目前 reader seed set。
+- RSS crawler 與 HTML extractor 會送出 explicit User-Agent / Accept headers，降低正常 feed 或文章頁被無差別拒絕的機率；若文章頁回 401/403/429，系統保守降級為 `summary_fallback`，不標成 `full_content_ready`。
+- `HtmlArticleContentExtractor` 已加入 deterministic content quality gate：過短 clean text、低 word count、與 RSS summary 近似、或含多個 cookie/subscribe/related/sidebar 類 noise phrase 的內容會降級為 `summary_fallback`。
+- AI report prompt 已明確標示 content basis；只有 `contentStatus == full_content_ready` 會被視為完整原文，`summary_fallback` 不得宣稱 full-article analysis。
+- Local validation crawl on 2026-05-20 with the S2-4 seed set visited 6 sources, persisted 58 articles, and had 0 source failures; status mix was `full_content_ready` plus `summary_fallback` where source pages blocked or only RSS-safe content was available。
 
 #### Known gaps
 
-- Seed sources 仍偏少，且 watch/aggregator/newsletter 類來源可能讓產品體感偏低價值。
-- Content extraction 尚未有正文長度、正文密度、noise phrase 或 summary-vs-full-content 的品質門檻。
-- `full_content_ready` 目前可能代表「HTML 清掉 tag 後有文字」，不保證是可分析的主文。
-- 目前沒有 content quality score、extraction quality reason 或足夠測試 fixture 來區分可讀正文與頁面雜訊。
+- 某些官方站點會阻擋 article HTML，但仍提供可用 RSS summary；S2-4 的 MVP 決策是保守 `summary_fallback`，不做 browser-based scraping、反 bot 繞過或付費 search/news API。
+- 目前尚未保存 extraction quality reason 或 per-source extraction success metrics；長期 source quality analysis 仍受 S2-3a logs-only rejected metadata deferral 限制。
+- RSS crawler 目前主要讀 RSS `<item>`；Atom-only source expansion 與更完整 feed parser 不在 S2-4 範圍。
 
 #### Next actions
 
-- 先做小規模高訊號 source catalog 調整，不追求大量來源。
-- 加入 content quality gate，讓低品質抽文降級為 `summary_fallback` 或 `extraction_failed`。
-- 補 extraction fixture tests 與 watch source threshold tests。
+- 另開 follow-up 評估 per-source extraction success/summary-fallback ratio，決定是否替換常被阻擋且 RSS summary 過短的來源。
+- 若要擴充來源，優先補官方 RSS/Atom parser coverage，再小批加入可抽取全文且非 aggregator 的來源。
+- 另開 follow-up 保存 rejected/extraction audit metadata 後，才能做長期 source quality analysis。
 
 ### S3-1. AI quick summary state sync 與 cache correctness
 

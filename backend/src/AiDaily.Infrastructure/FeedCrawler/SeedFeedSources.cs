@@ -44,6 +44,30 @@ public static class SeedFeedSources
         },
         new FeedSource
         {
+            Id = "google-ai-blog",
+            Name = "Google AI Blog",
+            FeedUrl = "https://blog.google/technology/ai/rss/",
+            SiteUrl = "https://blog.google/technology/ai/",
+            SourceType = "rss",
+            TopicScope = "ai-product-research",
+            DefaultCandidateLimit = 20,
+            SourceQualityTier = "core",
+            QualityNotes = "Official Google AI topic feed; useful for Gemini, research, product, and developer ecosystem updates."
+        },
+        new FeedSource
+        {
+            Id = "huggingface-blog",
+            Name = "Hugging Face Blog",
+            FeedUrl = "https://huggingface.co/blog/feed.xml",
+            SiteUrl = "https://huggingface.co/blog",
+            SourceType = "rss",
+            TopicScope = "ai-open-source-models",
+            DefaultCandidateLimit = 20,
+            SourceQualityTier = "standard",
+            QualityNotes = "Official Hugging Face blog; useful for open-source models, datasets, evaluation, and deployment updates."
+        },
+        new FeedSource
+        {
             Id = "infoq-ai-ml-news",
             Name = "InfoQ AI, ML & Data Engineering",
             FeedUrl = "https://feed.infoq.com/ai-ml-data-eng/news/",

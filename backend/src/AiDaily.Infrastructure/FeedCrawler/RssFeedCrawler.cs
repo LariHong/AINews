@@ -41,7 +41,13 @@ public sealed class RssFeedCrawler : IFeedCrawler
 
             try
             {
-                using var stream = await _httpClient.GetStreamAsync(source.FeedUrl, cancellationToken);
+                using var request = new HttpRequestMessage(HttpMethod.Get, source.FeedUrl);
+                request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (compatible; AI-Daily/1.0; +https://example.local)");
+                request.Headers.Accept.ParseAdd("application/rss+xml, application/atom+xml, application/xml, text/xml");
+
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                response.EnsureSuccessStatusCode();
+                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
                 var document = await XDocument.LoadAsync(stream, LoadOptions.None, cancellationToken);
                 var candidateLimit = Math.Clamp(source.DefaultCandidateLimit, 10, 100);
                 var items = document.Descendants("item").Take(candidateLimit).ToList();
