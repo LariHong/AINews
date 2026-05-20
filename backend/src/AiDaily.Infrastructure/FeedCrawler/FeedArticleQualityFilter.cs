@@ -10,14 +10,26 @@ internal static class FeedArticleQualityFilter
         "artificial intelligence",
         "agent",
         "agents",
+        "anthropic",
         "benchmark",
+        "chatgpt",
+        "claude",
+        "codex",
+        "copilot",
         "deep learning",
+        "deepmind",
+        "embedding",
+        "embeddings",
+        "gemini",
         "generative",
+        "hugging face",
+        "inference",
         "llm",
         "machine learning",
         "model",
         "multimodal",
         "neural",
+        "nvidia",
         "openai",
         "prompt",
         "reasoning",
@@ -57,8 +69,13 @@ internal static class FeedArticleQualityFilter
             .Where(keyword => ContainsKeyword(relevanceHaystack, keyword))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        var isCoreSource = source.SourceQualityTier.Equals("core", StringComparison.OrdinalIgnoreCase);
+        var hasStrongTitleSignal = matchedKeywords.Any(keyword =>
+            !keyword.Equals("ai", StringComparison.OrdinalIgnoreCase) &&
+            ContainsKeyword(titleText, keyword));
 
-        if (contentLength < 48 || summaryText.Length < 24)
+        if ((contentLength < 48 || summaryText.Length < 24) &&
+            !(isCoreSource && hasStrongTitleSignal && titleText.Length >= 18))
         {
             return FeedArticleQualityResult.Rejected("too_short", matchedKeywords);
         }

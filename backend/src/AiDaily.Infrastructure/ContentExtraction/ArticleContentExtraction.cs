@@ -76,7 +76,18 @@ public sealed class HtmlArticleContentExtractor : IArticleContentExtractor
 
         try
         {
-            var html = await _httpClient.GetStringAsync(uri, cancellationToken);
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            request.Headers.UserAgent.ParseAdd("Mozilla/5.0 (compatible; AI-Daily/1.0; +https://example.local)");
+            request.Headers.Accept.ParseAdd("text/html,application/xhtml+xml");
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+            if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized or (HttpStatusCode)429)
+            {
+                return ArticleContentExtractionResult.SummaryFallback(fallbackSummary);
+            }
+
+            response.EnsureSuccessStatusCode();
+            var html = await response.Content.ReadAsStringAsync(cancellationToken);
             var cleanText = ExtractReadableText(html);
 
             if (!IsHighQualityFullContent(cleanText, fallbackSummary))
