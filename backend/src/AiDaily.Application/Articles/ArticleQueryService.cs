@@ -7,6 +7,8 @@ namespace AiDaily.Application.Articles;
 
 public sealed class ArticleQueryService
 {
+    private const int MinimumReaderFeedIngestionScore = 70;
+
     private readonly IArticleRepository _articles;
     private readonly IAiSummaryRepository _summaries;
     private readonly IBookmarkRepository _bookmarks;
@@ -34,9 +36,11 @@ public sealed class ArticleQueryService
         var hiddenArticleIds = await GetHiddenArticleIdsAsync(userId, cancellationToken);
         var filtered = ApplyFilters(allArticles, parameters)
             .Where(article => string.IsNullOrWhiteSpace(article.RejectionReason))
+            .Where(article => article.IngestionScore == 0 || article.IngestionScore >= MinimumReaderFeedIngestionScore)
             .Where(article => !hiddenArticleIds.Contains(article.Id))
-            .OrderByDescending(article => article.PublishedAt)
+            .OrderByDescending(article => DateOnly.FromDateTime(article.PublishedAt.UtcDateTime))
             .ThenByDescending(article => article.IngestionScore)
+            .ThenByDescending(article => article.PublishedAt)
             .ThenBy(article => article.Id)
             .ToList();
 
