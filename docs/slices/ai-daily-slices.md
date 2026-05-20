@@ -72,8 +72,9 @@ Status legend:
 | 1 | AI report contract hardening | `S4-1` | `feature/s4-1-report-contract-hardening` | SSE/provider/rate-limit contract 穩定，昂貴 AI 入口不再裸奔 |
 | 2 | Article/feed persistence baseline | `P1a` | `feature/p1a-article-feed-persistence` | feed articles 與 feed metadata 重啟後仍存在 |
 | 3 | Quick summary state sync | `S3-1` | `feature/s3-1-summary-state-sync` | 生成 summary 後 article badge/stats/cache 狀態一致 |
-| 4 | Rejected metadata decision | `S2-3a` | `feature/s2-3a-rejected-metadata-decision` | rejected candidates 不再只是在計畫裡消失 |
-| 5 | Reader list cursor hardening | `S1` follow-up | `feature/s1-article-list-cursor-hardening` | hidden/filter/new articles 下 pagination 不漏不重 |
+| 4 | Feed relevance gate and ranking hardening | `S2-3b` | `feature/s2-3b-feed-relevance-ranking` | 低訊號 RSS candidate 不因 source metadata 含 AI 而進 feed，reader list 不再只偏新鮮度 |
+| 5 | Rejected metadata decision | `S2-3a` | `feature/s2-3a-rejected-metadata-decision` | rejected candidates 不再只是在計畫裡消失 |
+| 6 | Reader list cursor hardening | `S1` follow-up | `feature/s1-article-list-cursor-hardening` | hidden/filter/new articles 下 pagination 不漏不重 |
 
 ### Copy-Paste Prompts
 
@@ -159,7 +160,32 @@ validation_commands:
 如果 npm 指令在本機工具層無法執行，必須回報未驗證前端。
 ```
 
-#### 4. S2-3a rejected metadata decision
+#### 4. S2-3b feed relevance gate and ranking hardening
+
+```text
+請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S2-3b，修正 Feed relevance gate and ranking hardening。
+
+只做 S2-3b，不要同時做 rejected candidate audit persistence、admin/debug UI、LLM ranking、大規模 source expansion、persistence baseline 或 cursor hardening。
+
+開始前先回報 git_flow_classification，預設：
+- base_branch: develop
+- branch_type: feature
+- suggested_branch_name: feature/s2-3b-feed-relevance-ranking
+
+成功標準：
+- AI relevance 判斷主要依 title、summary、canonical URL 或明確 allowlist topic；source.Name/source.TopicScope 不得讓候選在內容無 AI 訊號時自動通過。
+- Generic `ai` only、過短摘要、活動/公告/列表型低訊號候選需被 deterministic rule 拒絕或明確降分。
+- `ingestionScore` 語意能區分高訊號與勉強相關候選；低於 threshold 的候選不進一般 reader feed。
+- `GET /api/v1/articles` 預設排序有明確 quality-vs-recency 規則，避免低分新文章無條件壓過高分稍早文章。
+- 補測試：source name/topic 含 AI，但 title/summary/sourceUrl 無 AI relevance 時應 rejected。
+- 補測試：高分稍早文章不應被低分新文章無條件壓過；測試需反映實作採用的排序規則。
+- 保留既有 rejected article 排除、candidateLimit 掃描、accepted article ingestion metadata 測試。
+
+validation_commands:
+- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+```
+
+#### 5. S2-3a rejected metadata decision
 
 ```text
 請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S2-3a 與 docs/feed-source-policy.md，處理 rejected candidate metadata decision。
@@ -181,7 +207,7 @@ validation_commands:
 - dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
 ```
 
-#### 5. S1 reader list cursor hardening
+#### 6. S1 reader list cursor hardening
 
 ```text
 請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S1 current gaps，修正 reader list cursor pagination。
@@ -229,6 +255,7 @@ validation_commands:
 | S4-1 report contract | `backend/src/AiDaily.Application/AiSummaries`、`backend/src/AiDaily.Infrastructure/AI`、`frontend/src/composables/useAiReportStream.ts` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
 | P1a article/feed persistence | `backend/src/AiDaily.Infrastructure/Persistence`、`backend/src/AiDaily.Infrastructure/Repositories`、`backend/src/AiDaily.Domain/Entities` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`dotnet build backend/AiDaily.sln` |
 | S3-1 summary state sync | `backend/src/AiDaily.Application/AiSummaries`、`frontend/src/components/ai/AiSummaryPanel.vue`、`frontend/src/stores/aiSummaryStore.ts` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
+| S2-3b feed relevance/ranking | `backend/src/AiDaily.Infrastructure/FeedCrawler/FeedArticleQualityFilter.cs`、`backend/src/AiDaily.Application/Articles/ArticleQueryService.cs`、`backend/tests/AiDaily.UnitTests` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
 | S2-3a rejected metadata | `backend/src/AiDaily.Infrastructure/FeedCrawler`、`docs/feed-source-policy.md` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
 | S1 cursor hardening | `backend/src/AiDaily.Application/Articles`、`frontend/src/stores/articleStore.ts` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
 
@@ -660,21 +687,58 @@ git_flow_classification:
 #### Current implementation
 
 - 已有 deterministic quality filter、candidateLimit 掃描與 accepted article ingestion metadata。
+- 目前 quality filter 會把 `source.Name` 與 `source.TopicScope` 一起放進 AI relevance haystack；若來源名稱或 topic 本身含 `AI`，非 AI 文章也可能被 keyword 命中而通過。
+- `GET /api/v1/articles` 目前會先依 `publishedAt` 排序，再用 `ingestionScore` 當 tie-breaker；品質分數不會讓稍早但高訊號的文章排到低訊號新文章前面。
+- Seed source 實作目前只包含少量固定來源，且有 newsletter / aggregator 類 `watch` source；尚未回補 spec 中較高訊號的官方 blog、研究、政策與主流 AI topic feed。
 - Rejected candidates 目前只寫入 crawler logs，沒有保存 `rejectionReason` 到 article 或 audit table。
 
 #### Known gaps
 
 - `docs/feed-source-policy.md` 期望保留 rejected metadata；目前 runtime 是 logs-only MVP。
 - 沒有 admin/debug view 或 rejected candidate audit store 可用於調校來源。
+- AI relevance 判斷不應因 source metadata 含 `AI` 就自動通過；title、summary、canonical URL 或明確 allowlist topic 才應主導候選文章是否相關。
+- 目前缺少 minimum quality threshold、generic `ai` only 降權或短內容低訊號規則，導致「有 AI 字樣但沒有讀者價值」的文章仍可能進入一般 feed。
+- Reader feed 排序偏新鮮度，尚未定義 quality-vs-recency 規則；使用者可能先看到最新但低價值的文章，而不是高訊號文章。
 
 #### Next actions
 
+- 先做 S2-3b 修正 relevance gate 與 reader ranking，處理低訊號文章進入一般 feed 的直接問題。
 - 決定 rejected candidates 要保存成 audit records，或將 policy 明確降級為 logs-only MVP。
 - 若選擇保存，新增 rejected candidate persistence 與查詢測試；若不保存，文件需說明目前不能做長期 source quality analysis。
+- S2-3a rejected metadata 決策不要和 S2-3b、source expansion 或 admin/debug UI 混在同一輪。
 
 #### S2-3a. Rejected candidate metadata decision
 
 S2-3 是較大的 feed quality umbrella；下一個可執行工作只做 S2-3a。S2-3a 的範圍是決定 rejected candidates 是否保存 audit metadata，或明確把目前 runtime 降級為 logs-only MVP。不要在這一輪重做 candidate limit、sorting、source selection、admin UI 或整個 persistence baseline。
+
+#### S2-3b. Feed relevance gate and ranking hardening
+
+S2-3b 是針對目前 feed 低價值感的最小可執行修正；它只處理 deterministic relevance gate、quality threshold 與一般 reader feed 排序，不處理 rejected audit persistence、admin UI、LLM ranking 或大規模 source expansion。
+
+- owner_scope: RSS candidate relevance、ingestion score semantics、reader list ordering。
+- suggested_branch_name: `feature/s2-3b-feed-relevance-ranking`
+- user_flow: 使用者打開 Dashboard 時，預設 feed 優先顯示高訊號 AI 文章；來源名稱含 AI 但文章內容低訊號的候選不應只是因 source metadata 而進入 feed。
+- files_or_areas:
+  - `backend/src/AiDaily.Infrastructure/FeedCrawler/FeedArticleQualityFilter.cs`
+  - `backend/src/AiDaily.Infrastructure/FeedCrawler/RssFeedCrawler.cs`
+  - `backend/src/AiDaily.Application/Articles/ArticleQueryService.cs`
+  - `backend/tests/AiDaily.UnitTests`
+  - `docs/feed-source-policy.md`
+- acceptance:
+  - AI relevance 判斷主要依 title、summary、canonical URL 或明確 allowlist topic；`source.Name` 與 `source.TopicScope` 不得讓候選文章在內容無 AI 訊號時自動通過。
+  - Generic `ai` only、過短摘要、活動/公告/列表型低訊號候選需被拒絕或明確降分；門檻與原因必須是 deterministic rule，不交給模型判斷。
+  - `ingestionScore` 的語意需能區分高訊號與勉強相關候選；若分數低於 threshold，候選不應進入一般 reader feed。
+  - `GET /api/v1/articles` 的預設排序需明確定義 quality-vs-recency 規則，例如同日內 quality first，或用可測試的 composite ranking 避免低分新文章無條件壓過高分文章。
+  - 新增測試：source name/topic 含 AI，但 title/summary/sourceUrl 無 AI relevance 時，candidate 應被 rejected。
+  - 新增測試：高分稍早文章不應被低分新文章無條件壓過；測試需反映實作採用的 quality-vs-recency 規則。
+  - 保留現有 rejected article 不出現在一般列表、candidateLimit 會繼續掃描後續候選、accepted article 保存 ingestion metadata 的測試。
+- not_included:
+  - Rejected candidate audit persistence；仍由 S2-3a 決定。
+  - Admin/debug source quality view。
+  - LLM-based relevance ranking 或摘要品質判斷。
+  - 付費 search/news API。
+  - 大規模新增或替換 feed sources；source expansion 可在 gate 穩定後另開 follow-up。
+- reason_first: 目前文章低價值的核心不是缺少 AI 產生能力，而是 deterministic gate 太容易被 source metadata 放行，且 reader feed 排序過度偏向新鮮度；先修 gate 與排序，才能避免後續 summary/report 把成本花在低訊號文章上。
 
 ### S3-1. AI quick summary state sync 與 cache correctness
 
@@ -971,6 +1035,7 @@ next_order:
   - S4-1. Deep report provider、SSE contract、rate limit 與 spec 偏差回補
   - P1a. Article/feed persistence baseline
   - S3-1. AI quick summary state sync 與 cache correctness
+  - S2-3b. Feed relevance gate and ranking hardening
   - S2-3a. Rejected candidate metadata decision
   - S1 follow-up. Reader list cursor hardening
 s5_handoff:
