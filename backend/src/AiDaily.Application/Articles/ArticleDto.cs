@@ -19,7 +19,7 @@ public sealed record ArticleDto(
     bool IsBookmarked,
     short? ReadTimeMinutes)
 {
-    public static ArticleDto FromArticle(Article article, bool isBookmarked) =>
+    public static ArticleDto FromArticle(Article article, bool isBookmarked, bool? hasAiSummary = null) =>
         new(
             article.Id,
             article.Title,
@@ -33,7 +33,7 @@ public sealed record ArticleDto(
             article.SourceLogoUrl,
             article.Tags,
             article.PublishedAt,
-            article.HasAiSummary,
+            hasAiSummary ?? article.HasAiSummary,
             isBookmarked,
             article.ReadTimeMinutes);
 }

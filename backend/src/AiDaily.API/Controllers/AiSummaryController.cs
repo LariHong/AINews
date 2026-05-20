@@ -31,6 +31,8 @@ public sealed class AiSummaryController : ControllerBase
     [HttpGet]
     [ProducesResponseType(typeof(ApiResponse<AiSummaryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status502BadGateway)]
     public async Task<ActionResult<ApiResponse<AiSummaryDto>>> GetAiSummary(
         [FromRoute] string articleId,
         CancellationToken cancellationToken = default)
@@ -62,6 +64,12 @@ public sealed class AiSummaryController : ControllerBase
         return result.Status switch
         {
             AiSummaryGenerationStatus.Ready => Ok(ApiResponse<AiSummaryDto>.Ok(result.Summary!)),
+            AiSummaryGenerationStatus.InProgress => Conflict(ApiErrorResponse.Fail(
+                "AI_SUMMARY_GENERATION_IN_PROGRESS",
+                $"AI summary generation for article '{articleId}' is already running.")),
+            AiSummaryGenerationStatus.ProviderFailed => StatusCode(
+                StatusCodes.Status502BadGateway,
+                ApiErrorResponse.Fail(result.ErrorCode!, result.ErrorMessage!)),
             _ => NotFound(ApiErrorResponse.Fail(
                 "ARTICLE_NOT_FOUND",
                 $"Article '{articleId}' was not found."))

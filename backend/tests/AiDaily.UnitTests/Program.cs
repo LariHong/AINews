@@ -20,9 +20,10 @@ using System.Net;
 using System.Text.Json;
 
 var repository = new InMemoryArticleRepository();
+var summaryRepository = new InMemoryAiSummaryRepository();
 var bookmarkRepository = new InMemoryBookmarkRepository();
 var hiddenArticleRepository = new InMemoryHiddenArticleRepository();
-var service = new ArticleQueryService(repository, bookmarkRepository, hiddenArticleRepository);
+var service = new ArticleQueryService(repository, summaryRepository, bookmarkRepository, hiddenArticleRepository);
 
 await ShouldFilterByKeyword();
 await ShouldFilterByTagAndPaginate();
@@ -45,6 +46,9 @@ await ShouldCacheAiSummaryPreview();
 await ShouldGenerateAiSummaryOnceWhenMissing();
 await ShouldReuseExistingAiSummaryWithoutProviderCall();
 await ShouldForceRegenerateAiSummaryAndRefreshCache();
+await ShouldKeepOldAiSummaryCacheWhenForceRegenerationFails();
+await ShouldPreventConcurrentAiSummaryGeneration();
+await ShouldProjectGeneratedSummaryAvailabilityIntoArticlesAndStats();
 await ShouldGenerateAndReadAiReport();
 await ShouldRateLimitAiReportPerUserAndArticle();
 await ShouldWriteVersionedMvpSseContract();
@@ -82,6 +86,7 @@ async Task ShouldGetTodayDashboardStats()
 {
     var statsService = new DashboardStatsQueryService(
         repository,
+        summaryRepository,
         new FeedCrawlRunState(),
         new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
 
@@ -97,7 +102,7 @@ async Task ShouldGetTodayDashboardStats()
 async Task ShouldKeepArticleListQueriesReadOnly()
 {
     var crawler = new CountingFeedCrawler();
-    var queryService = new ArticleQueryService(repository, bookmarkRepository, hiddenArticleRepository);
+    var queryService = new ArticleQueryService(repository, summaryRepository, bookmarkRepository, hiddenArticleRepository);
 
     _ = await queryService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null), "local_test");
 
@@ -397,6 +402,7 @@ async Task ShouldExcludeRejectedArticlesFromArticleList()
 
     var localService = new ArticleQueryService(
         localRepository,
+        new InMemoryAiSummaryRepository(),
         new InMemoryBookmarkRepository(),
         new InMemoryHiddenArticleRepository());
     var result = await localService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null), "local_test");
@@ -443,6 +449,7 @@ async Task ShouldUseIngestionQualityAsArticleListTieBreaker()
 
     var localService = new ArticleQueryService(
         localRepository,
+        new InMemoryAiSummaryRepository(),
         new InMemoryBookmarkRepository(),
         new InMemoryHiddenArticleRepository());
     var result = await localService.GetArticlesAsync(new ArticleListParams(null, 2, null, null, null, null), "local_test");
@@ -500,7 +507,12 @@ async Task ShouldGenerateAiSummaryOnceWhenMissing()
     var summaryRepository = new EmptySummaryRepository();
     var generator = new CountingSummaryGenerator();
     var cache = new InMemoryAiSummaryReadCache();
-    var generationService = new AiSummaryGenerationService(repository, summaryRepository, generator, cache);
+    var generationService = new AiSummaryGenerationService(
+        repository,
+        summaryRepository,
+        generator,
+        new InMemoryAiSummaryGenerationTracker(),
+        cache);
     var queryService = new AiSummaryQueryService(repository, summaryRepository, cache);
 
     var generated = await generationService.GenerateAsync("art_01JAI002", force: false);
@@ -524,6 +536,7 @@ async Task ShouldReuseExistingAiSummaryWithoutProviderCall()
         repository,
         summaryRepository,
         generator,
+        new InMemoryAiSummaryGenerationTracker(),
         new InMemoryAiSummaryReadCache());
 
     var result = await generationService.GenerateAsync("art_01JAI001", force: false);
@@ -538,7 +551,12 @@ async Task ShouldForceRegenerateAiSummaryAndRefreshCache()
     var summaryRepository = new InMemoryAiSummaryRepository();
     var generator = new CountingSummaryGenerator();
     var cache = new InMemoryAiSummaryReadCache();
-    var generationService = new AiSummaryGenerationService(repository, summaryRepository, generator, cache);
+    var generationService = new AiSummaryGenerationService(
+        repository,
+        summaryRepository,
+        generator,
+        new InMemoryAiSummaryGenerationTracker(),
+        cache);
     var queryService = new AiSummaryQueryService(repository, summaryRepository, cache);
 
     var generated = await generationService.GenerateAsync("art_01JAI001", force: true);
@@ -547,6 +565,82 @@ async Task ShouldForceRegenerateAiSummaryAndRefreshCache()
     Assert(generated.WasGenerated, "force should regenerate an existing summary");
     Assert(generator.Calls == 1, "force regeneration should call the provider");
     Assert(queried.Summary?.Provider == "counting", "cache should contain regenerated summary metadata");
+}
+
+async Task ShouldKeepOldAiSummaryCacheWhenForceRegenerationFails()
+{
+    var summaries = new InMemoryAiSummaryRepository();
+    var cache = new InMemoryAiSummaryReadCache();
+    var queryService = new AiSummaryQueryService(repository, summaries, cache);
+    var first = await queryService.GetPreviewAsync("art_01JAI001");
+    var generationService = new AiSummaryGenerationService(
+        repository,
+        summaries,
+        new FailingSummaryGenerator("AI_PROVIDER_RATE_LIMITED"),
+        new InMemoryAiSummaryGenerationTracker(),
+        cache);
+
+    var failed = await generationService.GenerateAsync("art_01JAI001", force: true);
+    var afterFailure = await queryService.GetPreviewAsync("art_01JAI001");
+
+    Assert(first.Status == AiSummaryQueryStatus.Found, "precondition should warm the old summary cache");
+    Assert(failed.Status == AiSummaryGenerationStatus.ProviderFailed, "provider failure should be mapped at domain level");
+    Assert(failed.ErrorCode == "AI_PROVIDER_RATE_LIMITED", "provider failure should preserve documented error code");
+    Assert(afterFailure.Summary?.Provider == "seed", "failed force regeneration should not evict the old cached summary");
+}
+
+async Task ShouldPreventConcurrentAiSummaryGeneration()
+{
+    var summaries = new EmptySummaryRepository();
+    var generator = new BlockingSummaryGenerator();
+    var generationService = new AiSummaryGenerationService(
+        repository,
+        summaries,
+        generator,
+        new InMemoryAiSummaryGenerationTracker(),
+        new InMemoryAiSummaryReadCache());
+
+    var first = generationService.GenerateAsync("art_01JAI002", force: false);
+    await generator.Started.Task;
+    var second = await generationService.GenerateAsync("art_01JAI002", force: false);
+    generator.Release.SetResult();
+    var firstResult = await first;
+
+    Assert(second.Status == AiSummaryGenerationStatus.InProgress, "parallel summary generation should be rejected by tracker");
+    Assert(firstResult.Status == AiSummaryGenerationStatus.Ready, "first summary generation should complete");
+    Assert(generator.Calls == 1, "parallel summary generation should not call provider twice");
+}
+
+async Task ShouldProjectGeneratedSummaryAvailabilityIntoArticlesAndStats()
+{
+    var localRepository = new InMemoryArticleRepository();
+    var summaries = new EmptySummaryRepository();
+    var generationService = new AiSummaryGenerationService(
+        localRepository,
+        summaries,
+        new CountingSummaryGenerator(),
+        new InMemoryAiSummaryGenerationTracker(),
+        new InMemoryAiSummaryReadCache());
+    var queryService = new ArticleQueryService(
+        localRepository,
+        summaries,
+        new InMemoryBookmarkRepository(),
+        new InMemoryHiddenArticleRepository());
+    var statsService = new DashboardStatsQueryService(
+        localRepository,
+        summaries,
+        new FeedCrawlRunState(),
+        new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
+
+    var generated = await generationService.GenerateAsync("art_01JAI002", force: false);
+    var article = await queryService.GetArticleAsync("art_01JAI002", "local_reader");
+    var list = await queryService.GetArticlesAsync(new ArticleListParams(null, 20, null, null, null, null), "local_reader");
+    var stats = await statsService.GetTodayAsync();
+
+    Assert(generated.Status == AiSummaryGenerationStatus.Ready, "summary generation should succeed before projection checks");
+    Assert(article?.HasAiSummary == true, "article detail should project generated summary availability");
+    Assert(list.Items.Single(item => item.Id == "art_01JAI002").HasAiSummary, "article list should project generated summary availability");
+    Assert(stats.AiSummarizedCount == 2, "dashboard stats should count generated summaries from summary repository");
 }
 
 async Task ShouldGenerateAndReadAiReport()
@@ -661,7 +755,12 @@ AiSummaryController CreateAiSummaryController(
 
     return new AiSummaryController(
         new AiSummaryQueryService(repository, summaryRepository, summaryCache),
-        new AiSummaryGenerationService(repository, summaryRepository, new CountingSummaryGenerator(), summaryCache),
+        new AiSummaryGenerationService(
+            repository,
+            summaryRepository,
+            new CountingSummaryGenerator(),
+            new InMemoryAiSummaryGenerationTracker(),
+            summaryCache),
         new AiReportQueryService(repository, reportRepository),
         new AiReportGenerationService(
             repository,
@@ -752,6 +851,7 @@ async Task ShouldBookmarkArticleForLocalUser()
         new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
     var queryService = new ArticleQueryService(
         localRepository,
+        new InMemoryAiSummaryRepository(),
         localBookmarks,
         new InMemoryHiddenArticleRepository());
 
@@ -774,6 +874,7 @@ async Task ShouldKeepBookmarksScopedToLocalUser()
         new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
     var queryService = new ArticleQueryService(
         localRepository,
+        new InMemoryAiSummaryRepository(),
         localBookmarks,
         new InMemoryHiddenArticleRepository());
 
@@ -796,6 +897,7 @@ async Task ShouldHideArticleForLocalUser()
         new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
     var queryService = new ArticleQueryService(
         localRepository,
+        new InMemoryAiSummaryRepository(),
         new InMemoryBookmarkRepository(),
         localHiddenArticles);
 
@@ -820,6 +922,7 @@ async Task ShouldRestoreHiddenArticle()
         new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
     var queryService = new ArticleQueryService(
         localRepository,
+        new InMemoryAiSummaryRepository(),
         new InMemoryBookmarkRepository(),
         localHiddenArticles);
 
@@ -896,6 +999,11 @@ internal sealed class CountingSummaryRepository : IAiSummaryRepository
 
     public Task SaveAsync(AiSummary summary, CancellationToken cancellationToken) =>
         Task.CompletedTask;
+
+    public Task<IReadOnlySet<string>> ListArticleIdsWithSummariesAsync(
+        IEnumerable<string> articleIds,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlySet<string>>(articleIds.ToHashSet(StringComparer.Ordinal));
 }
 
 internal sealed class EmptySummaryRepository : IAiSummaryRepository
@@ -906,6 +1014,17 @@ internal sealed class EmptySummaryRepository : IAiSummaryRepository
 
     public Task<AiSummary?> GetByArticleIdAsync(string articleId, CancellationToken cancellationToken) =>
         Task.FromResult(_summary?.ArticleId == articleId ? _summary : null);
+
+    public Task<IReadOnlySet<string>> ListArticleIdsWithSummariesAsync(
+        IEnumerable<string> articleIds,
+        CancellationToken cancellationToken)
+    {
+        var requested = articleIds.ToHashSet(StringComparer.Ordinal);
+        return Task.FromResult<IReadOnlySet<string>>(
+            _summary is not null && requested.Contains(_summary.ArticleId)
+                ? new HashSet<string>([_summary.ArticleId], StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal));
+    }
 
     public Task SaveAsync(AiSummary summary, CancellationToken cancellationToken)
     {
@@ -942,6 +1061,43 @@ internal sealed class CountingSummaryGenerator : IAiSummaryGenerator
             isFullContent
                 ? "Generated from full imported source text."
                 : "Generated from summary/source metadata without claiming full source analysis."));
+    }
+}
+
+internal sealed class FailingSummaryGenerator : IAiSummaryGenerator
+{
+    private readonly string _errorCode;
+
+    public FailingSummaryGenerator(string errorCode)
+    {
+        _errorCode = errorCode;
+    }
+
+    public string ProviderName => "failing";
+    public string PromptVersion => "quick-summary-test-v1";
+
+    public Task<AiSummaryDraft> GenerateAsync(Article article, CancellationToken cancellationToken) =>
+        throw new InvalidOperationException(_errorCode);
+}
+
+internal sealed class BlockingSummaryGenerator : IAiSummaryGenerator
+{
+    public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public int Calls { get; private set; }
+    public string ProviderName => "blocking";
+    public string PromptVersion => "quick-summary-test-v1";
+
+    public async Task<AiSummaryDraft> GenerateAsync(Article article, CancellationToken cancellationToken)
+    {
+        Calls++;
+        Started.TrySetResult();
+        await Release.Task.WaitAsync(cancellationToken);
+        return new AiSummaryDraft(
+            ["Generated quick summary"],
+            "Test impact scope",
+            "Test controversy",
+            "Generated from summary/source metadata without claiming full source analysis.");
     }
 }
 
