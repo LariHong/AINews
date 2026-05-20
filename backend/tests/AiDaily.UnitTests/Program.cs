@@ -1,3 +1,4 @@
+using AiDaily.API.Controllers;
 using AiDaily.Application.AiSummaries;
 using AiDaily.Application.Articles;
 using AiDaily.Application.Bookmarks;
@@ -10,7 +11,10 @@ using AiDaily.Infrastructure.Cache;
 using AiDaily.Infrastructure.ContentExtraction;
 using AiDaily.Infrastructure.FeedCrawler;
 using AiDaily.Infrastructure.Repositories;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using System.Net;
+using System.Text.Json;
 
 var repository = new InMemoryArticleRepository();
 var bookmarkRepository = new InMemoryBookmarkRepository();
@@ -37,6 +41,10 @@ await ShouldGenerateAiSummaryOnceWhenMissing();
 await ShouldReuseExistingAiSummaryWithoutProviderCall();
 await ShouldForceRegenerateAiSummaryAndRefreshCache();
 await ShouldGenerateAndReadAiReport();
+await ShouldRateLimitAiReportPerUserAndArticle();
+await ShouldWriteVersionedMvpSseContract();
+await ShouldReturnDocumentedRateLimitError();
+await ShouldBoundGeminiReportPromptContent();
 await ShouldRejectInvalidAiReportDraft();
 await ShouldNormalizeSparseAiReportDraft();
 await ShouldBookmarkArticleForLocalUser();
@@ -419,10 +427,11 @@ async Task ShouldGenerateAndReadAiReport()
         repository,
         reportRepository,
         new StubAiReportGenerator(),
-        new InMemoryAiReportGenerationTracker());
+        new InMemoryAiReportGenerationTracker(),
+        new InMemoryAiReportRateLimiter(new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z"))));
     var queryService = new AiReportQueryService(repository, reportRepository);
 
-    var start = await generationService.StartAsync("art_01JAI001", force: false);
+    var start = await generationService.StartAsync("art_01JAI001", "local_reader", force: false);
 
     Assert(start.Status == AiReportGenerationStartStatus.Ready, "report generation should start for an existing article");
 
@@ -436,6 +445,123 @@ async Task ShouldGenerateAndReadAiReport()
     Assert(result.Status == AiReportQueryStatus.Found, "generated report should be readable");
     Assert(result.Report?.KeyPoints.Count > 0, "generated report should include key points");
     Assert(result.Report?.Scores.Impact is >= 0 and <= 100, "generated report scores should be bounded");
+}
+
+async Task ShouldRateLimitAiReportPerUserAndArticle()
+{
+    var reportRepository = new EmptyReportRepository();
+    var generationService = new AiReportGenerationService(
+        repository,
+        reportRepository,
+        new StubAiReportGenerator(),
+        new InMemoryAiReportGenerationTracker(),
+        new InMemoryAiReportRateLimiter(new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z"))));
+
+    var first = await generationService.StartAsync("art_01JAI002", "local_reader", force: true);
+    await foreach (var _ in first.Stream!)
+    {
+    }
+    var second = await generationService.StartAsync("art_01JAI002", "local_reader", force: true);
+    var otherUser = await generationService.StartAsync("art_01JAI002", "local_other", force: true);
+
+    Assert(first.Status == AiReportGenerationStartStatus.Ready, "first generation attempt should be allowed");
+    Assert(second.Status == AiReportGenerationStartStatus.RateLimited, "same user/article should be rate limited");
+    Assert(second.RetryAfter is not null, "rate limited attempts should expose retry-after");
+    Assert(otherUser.Status == AiReportGenerationStartStatus.Ready, "rate limit should stay scoped to user and article");
+}
+
+async Task ShouldWriteVersionedMvpSseContract()
+{
+    var controller = CreateAiSummaryController(
+        new InMemoryAiReportRepository(),
+        new InMemoryAiReportRateLimiter(new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z"))));
+    var httpContext = new DefaultHttpContext();
+    await using var body = new MemoryStream();
+    httpContext.Response.Body = body;
+    httpContext.Request.Headers["X-AI-Daily-Local-User"] = "local_reader";
+    controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+    await controller.GenerateAiReport("art_01JAI001", force: true);
+
+    body.Position = 0;
+    var text = await new StreamReader(body).ReadToEndAsync();
+
+    Assert(httpContext.Response.ContentType == "text/event-stream", "SSE response should use text/event-stream");
+    Assert(httpContext.Response.Headers.CacheControl == "no-cache", "SSE response should disable response caching");
+    Assert(text.Contains("event: started"), "SSE stream should include the versioned MVP started event");
+    Assert(text.Contains("event: status"), "SSE stream should include the versioned MVP status event");
+    Assert(text.Contains("event: report"), "SSE stream should include the versioned MVP report event");
+    Assert(text.Contains("event: completed"), "SSE stream should include the versioned MVP completed event");
+    Assert(!text.Contains("event: chunk"), "SSE stream should not silently switch to the spec chunk event shape");
+}
+
+async Task ShouldReturnDocumentedRateLimitError()
+{
+    var rateLimiter = new InMemoryAiReportRateLimiter(new FixedTimeProvider(DateTimeOffset.Parse("2026-05-13T10:00:00Z")));
+    var warmup = CreateAiSummaryController(new EmptyReportRepository(), rateLimiter);
+    var warmupContext = new DefaultHttpContext();
+    await using var warmupBody = new MemoryStream();
+    warmupContext.Response.Body = warmupBody;
+    warmupContext.Request.Headers["X-AI-Daily-Local-User"] = "local_reader";
+    warmup.ControllerContext = new ControllerContext { HttpContext = warmupContext };
+    _ = await warmup.GenerateAiReport("art_01JAI002", force: true);
+
+    var controller = CreateAiSummaryController(
+        new EmptyReportRepository(),
+        rateLimiter);
+    var httpContext = new DefaultHttpContext();
+    httpContext.Request.Headers["X-AI-Daily-Local-User"] = "local_reader";
+    controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+    var limited = await controller.GenerateAiReport("art_01JAI002", force: true);
+
+    var result = limited as ObjectResult;
+    var error = result?.Value as ApiErrorResponse;
+
+    Assert(result?.StatusCode == StatusCodes.Status429TooManyRequests, "rate limited generation should return HTTP 429");
+    Assert(error?.Error.Code == "AI_RATE_LIMIT_EXCEEDED", "rate limited generation should return the documented error code");
+    Assert(httpContext.Response.Headers.RetryAfter.Count == 1, "rate limited generation should include Retry-After");
+}
+
+AiSummaryController CreateAiSummaryController(
+    IAiReportRepository reportRepository,
+    IAiReportRateLimiter rateLimiter)
+{
+    var summaryRepository = new InMemoryAiSummaryRepository();
+    var summaryCache = new InMemoryAiSummaryReadCache();
+
+    return new AiSummaryController(
+        new AiSummaryQueryService(repository, summaryRepository, summaryCache),
+        new AiSummaryGenerationService(repository, summaryRepository, new CountingSummaryGenerator(), summaryCache),
+        new AiReportQueryService(repository, reportRepository),
+        new AiReportGenerationService(
+            repository,
+            reportRepository,
+            new StubAiReportGenerator(),
+            new InMemoryAiReportGenerationTracker(),
+            rateLimiter));
+}
+
+Task ShouldBoundGeminiReportPromptContent()
+{
+    var article = new Article
+    {
+        Id = "art_long",
+        Title = "Long source article",
+        Summary = "Fallback summary",
+        SourceUrl = "https://example.com/long",
+        SourceName = "Example",
+        Tags = ["model"],
+        PublishedAt = DateTimeOffset.Parse("2026-05-13T00:00:00Z"),
+        ContentStatus = "full_content_ready",
+        ContentText = new string('A', GeminiAiReportGenerator.MaxPromptContentCharacters + 500)
+    };
+
+    var prompt = GeminiAiReportGenerator.BuildPrompt(article);
+
+    Assert(prompt.Contains(new string('A', GeminiAiReportGenerator.MaxPromptContentCharacters)), "prompt should include bounded source content");
+    Assert(!prompt.Contains(new string('A', GeminiAiReportGenerator.MaxPromptContentCharacters + 1)), "prompt should cap source content deterministically");
+    return Task.CompletedTask;
 }
 
 Task ShouldRejectInvalidAiReportDraft()
@@ -658,6 +784,15 @@ internal sealed class EmptySummaryRepository : IAiSummaryRepository
         SaveCount++;
         return Task.CompletedTask;
     }
+}
+
+internal sealed class EmptyReportRepository : IAiReportRepository
+{
+    public Task<AiReport?> GetByArticleIdAsync(string articleId, CancellationToken cancellationToken) =>
+        Task.FromResult<AiReport?>(null);
+
+    public Task SaveAsync(AiReport report, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }
 
 internal sealed class CountingSummaryGenerator : IAiSummaryGenerator

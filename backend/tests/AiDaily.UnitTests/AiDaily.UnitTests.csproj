@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\src\AiDaily.API\AiDaily.API.csproj" />
     <ProjectReference Include="..\..\src\AiDaily.Application\AiDaily.Application.csproj" />
     <ProjectReference Include="..\..\src\AiDaily.Domain\AiDaily.Domain.csproj" />
     <ProjectReference Include="..\..\src\AiDaily.Infrastructure\AiDaily.Infrastructure.csproj" />

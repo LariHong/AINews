@@ -163,7 +163,7 @@ export async function restoreHiddenArticle(articleId: string): Promise<HiddenArt
   return payload.data
 }
 
-function localUserHeaders(): HeadersInit {
+export function localUserHeaders(): HeadersInit {
   return {
     'X-AI-Daily-Local-User': getLocalUserId(),
   }

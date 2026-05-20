@@ -425,11 +425,18 @@ stores/
 
 觸發 AI 深度總結生成（SSE Streaming）
 
+> S4-1 MVP contract note: the current implementation intentionally versions the MVP SSE shape instead of switching to the original target shape. The public event names are `started`, `status`, `report`, `completed`, and `error`. The older target shape `start/chunk/field_done/done/error` remains a future spec target and must not be adopted without an explicit product decision.
+>
+> Provider deviation: the target provider remains Anthropic/Claude, while the MVP implementation is isolated behind `IAiReportGenerator` and may run `Gemini` or `Stub`. Provider failures must be mapped to documented application error codes and must not expose API keys, raw provider URLs, request headers, or secrets.
+>
+> Rate limit: report generation is limited per local user and article. Exceeding the limit returns `429` with `AI_RATE_LIMIT_EXCEEDED` and a `Retry-After` header. Cached report reads and non-forced reuse do not consume generation quota.
+
 **Request Headers**
 
 ```
 Accept: text/event-stream
 Authorization: Bearer {token}
+X-AI-Daily-Local-User: local_xxx
 ```
 
 **Request Body**
@@ -443,17 +450,33 @@ Authorization: Bearer {token}
 **Response: SSE Stream**
 
 ```
-data: {"type":"start","articleId":"art_01JXXXXXXXX"}
+event: started
+data: {"type":"started","message":"AI report generation started with gemini.","code":null,"report":null}
 
-data: {"type":"chunk","field":"tldr","content":"OpenAI 發布 GPT-5，"}
+event: status
+data: {"type":"status","message":"Analyzing article context.","code":null,"report":null}
 
-data: {"type":"chunk","field":"tldr","content":"在數學推理..."}
+event: report
+data: {"type":"report","message":null,"code":null,"report":{"articleId":"art_01JXXXXXXXX","tldr":"...","keyPoints":["..."],"pros":["..."],"cons":["..."],"timeline":[],"scores":{"impact":72,"confidence":68,"controversy":35},"relatedTags":["model"],"editorNote":"...","rating":"watchlist","provider":"gemini","generatedAt":"2026-05-12T07:30:00Z"}}
 
-data: {"type":"field_done","field":"tldr"}
+event: completed
+data: {"type":"completed","message":"AI report generation completed for art_01JXXXXXXXX.","code":null,"report":null}
+```
 
-data: {"type":"chunk","field":"keyPoints","index":0,"content":"推理能力全面升級"}
+**Rate limit response 429**
 
-data: {"type":"done","summaryId":"sum_01JXXXXXXXX"}
+```json
+{
+  "success": false,
+  "error": {
+    "code": "AI_RATE_LIMIT_EXCEEDED",
+    "message": "AI report generation is temporarily rate limited for this user and article."
+  },
+  "meta": {
+    "timestamp": "2026-05-12T08:00:00Z",
+    "requestId": "req_01JXXXXXXXX"
+  }
+}
 ```
 
 ---
