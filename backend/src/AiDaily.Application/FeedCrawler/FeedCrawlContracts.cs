@@ -14,6 +14,11 @@ public interface IFeedSourceCatalog
     IReadOnlyList<FeedSource> GetEnabledSources();
 }
 
+public interface IFeedSourceMetadataRepository
+{
+    Task SaveAsync(FeedSource source, CancellationToken cancellationToken = default);
+}
+
 public interface IFeedCrawlStatusReader
 {
     FeedCrawlStatusSnapshot Current { get; }

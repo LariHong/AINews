@@ -9,7 +9,9 @@ using AiDaily.API.Middleware;
 using AiDaily.Infrastructure.Cache;
 using AiDaily.Infrastructure.ContentExtraction;
 using AiDaily.Infrastructure.FeedCrawler;
+using AiDaily.Infrastructure.Persistence;
 using AiDaily.Infrastructure.Repositories;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -30,13 +32,31 @@ builder.Services.Configure<AiProviderOptions>(options =>
 });
 builder.Services.AddSingleton(serviceProvider =>
     serviceProvider.GetRequiredService<IOptions<AiProviderOptions>>().Value);
-builder.Services.AddSingleton<IArticleRepository, InMemoryArticleRepository>();
+var articleRepositoryMode = builder.Configuration["Persistence:ArticleRepository"] ?? "InMemory";
+if (UsesDatabaseArticleRepository(articleRepositoryMode))
+{
+    var connectionString = builder.Configuration.GetConnectionString("AiDaily")
+        ?? "Host=localhost;Port=5432;Database=ai_daily;Username=postgres;Password=postgres";
+
+    builder.Services.AddDbContext<AiDailyDbContext>(options => options.UseNpgsql(connectionString));
+    builder.Services.AddScoped<IArticleRepository, EfCoreArticleRepository>();
+    builder.Services.AddScoped<EfCoreFeedSourceCatalog>();
+    builder.Services.AddScoped<IFeedSourceCatalog>(serviceProvider =>
+        serviceProvider.GetRequiredService<EfCoreFeedSourceCatalog>());
+    builder.Services.AddScoped<IFeedSourceMetadataRepository>(serviceProvider =>
+        serviceProvider.GetRequiredService<EfCoreFeedSourceCatalog>());
+}
+else
+{
+    builder.Services.AddSingleton<IArticleRepository, InMemoryArticleRepository>();
+    builder.Services.AddSingleton<IFeedSourceCatalog, SeedFeedSourceCatalog>();
+}
+
 builder.Services.AddSingleton<IBookmarkRepository, InMemoryBookmarkRepository>();
 builder.Services.AddSingleton<IHiddenArticleRepository, InMemoryHiddenArticleRepository>();
 builder.Services.AddSingleton<FeedCrawlRunState>();
 builder.Services.AddSingleton<IFeedCrawlStatusReader>(serviceProvider =>
     serviceProvider.GetRequiredService<FeedCrawlRunState>());
-builder.Services.AddSingleton<IFeedSourceCatalog, SeedFeedSourceCatalog>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IAiSummaryRepository, InMemoryAiSummaryRepository>();
 builder.Services.AddSingleton<IAiSummaryReadCache, InMemoryAiSummaryReadCache>();
@@ -67,6 +87,11 @@ builder.Services.AddScoped<IAiReportGenerator>(serviceProvider =>
 
 var app = builder.Build();
 
+if (UsesDatabaseArticleRepository(articleRepositoryMode))
+{
+    await AiDailyDatabaseInitializer.InitializeAsync(app.Services);
+}
+
 app.UseCors("frontend");
 app.UseMiddleware<ApiExceptionHandlingMiddleware>();
 app.MapControllers();
@@ -77,3 +102,9 @@ static string? NormalizeApiKey(string? apiKey) =>
     string.IsNullOrWhiteSpace(apiKey) || apiKey == "請交換APIKEY"
         ? null
         : apiKey;
+
+static bool UsesDatabaseArticleRepository(string mode) =>
+    string.Equals(mode, "Db", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(mode, "Database", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(mode, "Postgres", StringComparison.OrdinalIgnoreCase) ||
+    string.Equals(mode, "PostgreSQL", StringComparison.OrdinalIgnoreCase);
