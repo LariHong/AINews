@@ -4,6 +4,8 @@ namespace AiDaily.Infrastructure.FeedCrawler;
 
 internal static class FeedArticleQualityFilter
 {
+    private const int MinimumAcceptedScore = 70;
+
     private static readonly string[] AiKeywords =
     [
         "ai",
@@ -48,20 +50,23 @@ internal static class FeedArticleQualityFilter
         string? summary,
         string sourceUrl)
     {
-        var haystack = $"{title} {summary} {source.Name} {source.TopicScope}".ToLowerInvariant();
+        var titleText = title.Trim();
+        var summaryText = summary?.Trim() ?? string.Empty;
+        var contentHaystack = $"{titleText} {summaryText}".ToLowerInvariant();
+        var relevanceHaystack = $"{titleText} {summaryText} {sourceUrl}".ToLowerInvariant();
         var contentLength = $"{title} {summary}".Trim().Length;
         var matchedKeywords = AiKeywords
-            .Where(keyword => haystack.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            .Where(keyword => ContainsKeyword(relevanceHaystack, keyword))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (contentLength < 32)
+        if (contentLength < 48 || summaryText.Length < 24)
         {
             return FeedArticleQualityResult.Rejected("too_short", matchedKeywords);
         }
 
         var rejection = RejectionKeywords
-            .FirstOrDefault(item => haystack.Contains(item.Keyword, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(item => contentHaystack.Contains(item.Keyword, StringComparison.OrdinalIgnoreCase));
         if (rejection.Reason is not null)
         {
             return FeedArticleQualityResult.Rejected(rejection.Reason, matchedKeywords);
@@ -72,13 +77,34 @@ internal static class FeedArticleQualityFilter
             return FeedArticleQualityResult.Rejected("not_ai_related", matchedKeywords);
         }
 
+        var titleMatches = matchedKeywords.Count(keyword => ContainsKeyword(titleText, keyword));
+        var summaryMatches = matchedKeywords.Count(keyword => ContainsKeyword(summaryText, keyword));
+        var urlMatches = matchedKeywords.Count(keyword => ContainsKeyword(sourceUrl, keyword));
+        var strongSignalMatches = matchedKeywords
+            .Where(keyword => !keyword.Equals("ai", StringComparison.OrdinalIgnoreCase))
+            .Count(keyword =>
+                ContainsKeyword(titleText, keyword) ||
+                ContainsKeyword(summaryText, keyword));
+        var hasGenericAiOnlySignal = matchedKeywords.Count == 1 &&
+            matchedKeywords[0].Equals("ai", StringComparison.OrdinalIgnoreCase);
+
         var tierBonus = source.SourceQualityTier switch
         {
-            "core" => 20,
-            "watch" => 10,
-            _ => 5
+            "core" => 15,
+            "watch" => 8,
+            _ => 0
         };
-        var score = 50 + tierBonus + Math.Min(matchedKeywords.Count * 8, 30);
+        var score = 45 +
+            tierBonus +
+            Math.Min(titleMatches * 12, 30) +
+            Math.Min(summaryMatches * 8, 24) +
+            Math.Min(urlMatches * 4, 8) +
+            Math.Min(strongSignalMatches * 6, 18);
+
+        if (hasGenericAiOnlySignal)
+        {
+            score -= 12;
+        }
 
         if (Uri.TryCreate(sourceUrl, UriKind.Absolute, out var uri) &&
             uri.AbsolutePath.Contains("tag", StringComparison.OrdinalIgnoreCase))
@@ -86,8 +112,38 @@ internal static class FeedArticleQualityFilter
             score += 5;
         }
 
-        return FeedArticleQualityResult.Accepted(Math.Min(score, 100), matchedKeywords);
+        score = Math.Min(score, 100);
+        return score >= MinimumAcceptedScore
+            ? FeedArticleQualityResult.Accepted(score, matchedKeywords)
+            : FeedArticleQualityResult.Rejected("below_quality_threshold", matchedKeywords);
     }
+
+    private static bool ContainsKeyword(string value, string keyword)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var index = value.IndexOf(keyword, StringComparison.OrdinalIgnoreCase);
+        while (index >= 0)
+        {
+            var before = index == 0 ? '\0' : value[index - 1];
+            var afterIndex = index + keyword.Length;
+            var after = afterIndex >= value.Length ? '\0' : value[afterIndex];
+            if (!IsKeywordCharacter(before) && !IsKeywordCharacter(after))
+            {
+                return true;
+            }
+
+            index = value.IndexOf(keyword, index + keyword.Length, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
+
+    private static bool IsKeywordCharacter(char value) =>
+        char.IsAsciiLetterOrDigit(value);
 }
 
 internal sealed record FeedArticleQualityResult(

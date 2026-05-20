@@ -38,8 +38,9 @@ await ShouldCrawlRssIntoArticles();
 await ShouldPersistArticlesAcrossDbContextRestart();
 await ShouldPersistFeedMetadataAcrossDbContextRestart();
 await ShouldScanBeyondFirstTenLowValueCandidates();
+await ShouldRejectCandidateWhenOnlySourceMetadataContainsAi();
 await ShouldExcludeRejectedArticlesFromArticleList();
-await ShouldUseIngestionQualityAsArticleListTieBreaker();
+await ShouldUseQualityBeforeRecencyWithinArticleListDay();
 await ShouldGetAiSummaryPreview();
 await ShouldReturnSummaryNotFound();
 await ShouldCacheAiSummaryPreview();
@@ -184,9 +185,9 @@ async Task ShouldCrawlRssIntoArticles()
         <rss version="2.0">
           <channel>
             <item>
-              <title>Example AI feed story</title>
+              <title>OpenAI model safety benchmark expands agent evaluation</title>
               <link>https://example.com/ai-feed-story</link>
-              <description>Imported from RSS.</description>
+              <description>Researchers compare LLM reasoning and safety behavior across production agent workflows.</description>
               <pubDate>Tue, 12 May 2026 06:30:00 GMT</pubDate>
             </item>
           </channel>
@@ -380,6 +381,42 @@ async Task ShouldScanBeyondFirstTenLowValueCandidates()
     Assert(imported!.IngestionScore > 0, "persisted article should include quality score");
 }
 
+async Task ShouldRejectCandidateWhenOnlySourceMetadataContainsAi()
+{
+    const string rss = """
+        <rss version="2.0">
+          <channel>
+            <item>
+              <title>Quarterly enterprise software pricing roundup</title>
+              <link>https://example.com/pricing-roundup</link>
+              <description>Vendors updated seat packaging and procurement terms for annual contracts.</description>
+              <pubDate>Tue, 12 May 2026 07:30:00 GMT</pubDate>
+            </item>
+          </channel>
+        </rss>
+        """;
+
+    var localRepository = new InMemoryArticleRepository();
+    using var httpClient = new HttpClient(new StaticRssHandler(rss));
+    var crawler = new RssFeedCrawler(httpClient, localRepository);
+    var result = await crawler.CrawlAsync([
+        new FeedSource
+        {
+            Id = "source-metadata-ai",
+            Name = "Example AI Coverage",
+            FeedUrl = "https://example.com/rss.xml",
+            TopicScope = "ai-news",
+            DefaultCandidateLimit = 10,
+            SourceQualityTier = "core"
+        }
+    ]);
+    var articles = await localRepository.ListAsync(CancellationToken.None);
+
+    Assert(result.ArticlesPersisted == 0, "source metadata containing AI should not make a candidate relevant without content or URL signal");
+    Assert(result.Logs.Any(log => log.Contains("not_ai_related", StringComparison.OrdinalIgnoreCase)), "crawler should log deterministic not-ai rejection");
+    Assert(articles.All(article => article.SourceUrl != "https://example.com/pricing-roundup"), "irrelevant candidate should not be persisted");
+}
+
 async Task ShouldExcludeRejectedArticlesFromArticleList()
 {
     var localRepository = new InMemoryArticleRepository();
@@ -410,10 +447,9 @@ async Task ShouldExcludeRejectedArticlesFromArticleList()
     Assert(result.Items.All(article => article.Id != "rejected_job"), "rejected articles should not appear in the normal article list");
 }
 
-async Task ShouldUseIngestionQualityAsArticleListTieBreaker()
+async Task ShouldUseQualityBeforeRecencyWithinArticleListDay()
 {
     var localRepository = new InMemoryArticleRepository();
-    var publishedAt = DateTimeOffset.Parse("2026-05-15T00:00:00Z");
 
     await localRepository.UpsertAsync(new Article
     {
@@ -423,7 +459,7 @@ async Task ShouldUseIngestionQualityAsArticleListTieBreaker()
         SourceUrl = "https://example.com/quality-low",
         SourceName = "Example",
         Tags = ["ai"],
-        PublishedAt = publishedAt,
+        PublishedAt = DateTimeOffset.Parse("2026-05-15T11:00:00Z"),
         IngestionScore = 55,
         MatchedKeywords = ["ai"],
         SourceQualityTier = "watch",
@@ -439,7 +475,7 @@ async Task ShouldUseIngestionQualityAsArticleListTieBreaker()
         SourceUrl = "https://example.com/quality-high",
         SourceName = "Example",
         Tags = ["ai", "model", "safety"],
-        PublishedAt = publishedAt,
+        PublishedAt = DateTimeOffset.Parse("2026-05-15T09:00:00Z"),
         IngestionScore = 95,
         MatchedKeywords = ["openai", "model", "safety"],
         SourceQualityTier = "core",
@@ -454,8 +490,8 @@ async Task ShouldUseIngestionQualityAsArticleListTieBreaker()
         new InMemoryHiddenArticleRepository());
     var result = await localService.GetArticlesAsync(new ArticleListParams(null, 2, null, null, null, null), "local_test");
 
-    Assert(result.Items[0].Id == "quality_high", "article list should use ingestion quality as a publishedAt tie-breaker");
-    Assert(result.Items[1].Id == "quality_low", "lower quality article with the same publishedAt should sort after higher quality");
+    Assert(result.Items[0].Id == "quality_high", "article list should rank high-quality same-day articles before lower-quality newer articles");
+    Assert(result.Items.All(article => article.Id != "quality_low"), "below-threshold articles should not appear in the normal reader feed");
 }
 
 async Task ShouldGetAiSummaryPreview()
