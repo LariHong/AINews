@@ -37,7 +37,7 @@ Do not treat the first 10 RSS entries as the best 10 articles. Each source shoul
 
 ## Deterministic Pre-Filter
 
-Before saving a candidate into the normal feed, check title, summary, source name, topic scope, and URL metadata.
+Before saving a candidate into the normal feed, check title, summary, canonical URL, and any explicit allowlist topic metadata. Source name or broad topic scope can inform source tuning, but they must not make a candidate pass the AI relevance gate when the candidate content and URL have no AI signal.
 
 Accept when the candidate has clear AI relevance, such as AI, artificial intelligence, agents, LLMs, machine learning, model releases, benchmarks, multimodal systems, robotics, safety, reasoning, or named AI providers.
 
@@ -65,9 +65,13 @@ The default reader API should exclude rejected articles. Debug or admin views ca
 
 The current crawler applies the deterministic pre-filter and logs rejected candidates, but it does not persist rejected candidate records or a long-lived rejection audit trail.
 
-Next implementation work must choose one of these paths:
+S2-3a decision: keep rejection handling as logs-only MVP behavior for now. Rejected candidate audit persistence is deferred because adding a durable audit store and query surface would expand this slice into rejected-candidate persistence/admin-debug work.
 
-- Persist rejected candidate metadata in a dedicated audit table or equivalent store so source quality can be tuned over time.
-- Or explicitly keep rejection handling as logs-only MVP behavior and update this policy to say long-term rejected-candidate analysis is deferred.
+Consequences of this deferral:
 
-Accepted articles should continue to store `ingestionScore`, `matchedKeywords`, and `sourceQualityTier`. Rejected candidates should not silently disappear from the planning model; they need either persistent audit data or a documented deferral.
+- Rejected candidates are visible only in crawler run logs during the current run.
+- The system cannot perform long-term rejected-candidate analysis, rejection-rate trends, or source quality scoring from rejected metadata.
+- Source tuning must rely on accepted article metadata, runtime logs, and manual observation until a later rejected audit persistence slice exists.
+- Debug or admin views for rejected candidates remain out of scope.
+
+Accepted articles should continue to store `ingestionScore`, `matchedKeywords`, and `sourceQualityTier`. Rejected candidates should not silently disappear from the planning model; this policy records the current documented deferral instead of claiming persistent audit data exists.
