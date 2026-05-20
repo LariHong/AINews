@@ -59,6 +59,7 @@ builder.Services.AddSingleton<IFeedCrawlStatusReader>(serviceProvider =>
     serviceProvider.GetRequiredService<FeedCrawlRunState>());
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IAiSummaryRepository, InMemoryAiSummaryRepository>();
+builder.Services.AddSingleton<IAiSummaryGenerationTracker, InMemoryAiSummaryGenerationTracker>();
 builder.Services.AddSingleton<IAiSummaryReadCache, InMemoryAiSummaryReadCache>();
 builder.Services.AddScoped<IAiSummaryGenerator, StubAiSummaryGenerator>();
 builder.Services.AddSingleton<IAiReportRepository, InMemoryAiReportRepository>();

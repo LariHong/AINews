@@ -23,6 +23,12 @@ function generateSummary() {
   }
 }
 
+function refreshSummary() {
+  if (articleId.value) {
+    void summaryStore.refreshSummary(articleId.value)
+  }
+}
+
 watch(
   articleId,
   (id) => {
@@ -67,6 +73,8 @@ watch(
       <div class="summary-meta">
         {{ summary.provider }} · {{ summary.promptVersion }}
       </div>
+
+      <button type="button" class="btn-full-report" @click="refreshSummary">Refresh Summary</button>
 
       <RouterLink v-if="compact" class="btn-full-report" :to="{ name: 'report', params: { id: article.id } }">
         Open Full Report

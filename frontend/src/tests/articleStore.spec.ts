@@ -1,12 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
+import aiSummaryPanelSource from '@/components/ai/AiSummaryPanel.vue?raw'
 import { useAiSummaryStore } from '@/stores/aiSummaryStore'
 import { useArticleStore } from '@/stores/articleStore'
 import { useBookmarkStore } from '@/stores/bookmarkStore'
 import { usePreferenceStore } from '@/stores/preferenceStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { addBookmark, deleteBookmark, fetchArticles, fetchTodayStats, hideArticle, restoreHiddenArticle, runTodayFeedCrawl } from '@/services/apiClient'
+import { fetchAiSummary, generateAiSummary } from '@/services/aiSummaryApi'
+import type { Article } from '@/types/article'
 
 vi.mock('@/services/apiClient', () => ({
   fetchArticles: vi.fn(async () => ({
@@ -154,6 +157,10 @@ vi.mock('@/services/aiSummaryApi', () => ({
 }))
 
 describe('articleStore', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('loads articles into state', async () => {
     setActivePinia(createPinia())
     const store = useArticleStore()
@@ -267,6 +274,82 @@ describe('articleStore', () => {
     expect(store.errorByArticleId.art_02).toBeUndefined()
   })
 
+  it('marks article list, detail, and dashboard stats after summary generation', async () => {
+    setActivePinia(createPinia())
+    const articleStore = useArticleStore()
+    const summaryStore = useAiSummaryStore()
+    articleStore.articles = [{ ...articleFixture, id: 'art_02', hasAiSummary: false }]
+    articleStore.selectedArticle = { ...articleFixture, id: 'art_02', hasAiSummary: false }
+    articleStore.dashboardStats = {
+      totalArticles: 1,
+      aiSummarizedCount: 0,
+      tagBreakdown: [],
+      topSources: [],
+      updatedAt: null,
+      syncStatus: {
+        isSyncing: false,
+        sourcesSynced: 1,
+        sourceFailures: 0,
+        message: '1 sources synced',
+      },
+    }
+
+    await summaryStore.generateSummary('art_02')
+
+    expect(articleStore.articles[0].hasAiSummary).toBe(true)
+    expect(articleStore.selectedArticle?.hasAiSummary).toBe(true)
+    expect(articleStore.dashboardStats?.aiSummarizedCount).toBe(1)
+  })
+
+  it('keeps the old summary visible when generation fails', async () => {
+    vi.mocked(generateAiSummary).mockRejectedValueOnce(Object.assign(new Error('Provider quota reached'), {
+      name: 'AI_PROVIDER_RATE_LIMITED',
+    }))
+    setActivePinia(createPinia())
+    const store = useAiSummaryStore()
+    store.byArticleId.art_01 = {
+      articleId: 'art_01',
+      highlights: ['Old highlight'],
+      impactScope: 'Existing scope',
+      controversy: 'Existing controversy',
+      editorView: 'Existing editor view',
+      provider: 'seed',
+      promptVersion: 'quick-summary-seed-v1',
+      generatedAt: '2026-05-12T08:15:00Z',
+    }
+
+    await store.generateSummary('art_01', true)
+
+    expect(store.byArticleId.art_01.provider).toBe('seed')
+    expect(store.errorByArticleId.art_01.code).toBe('AI_PROVIDER_RATE_LIMITED')
+  })
+
+  it('refreshes an existing summary from the API', async () => {
+    vi.mocked(fetchAiSummary).mockResolvedValueOnce({
+      articleId: 'art_01',
+      highlights: ['Refreshed highlight'],
+      impactScope: 'Refreshed scope',
+      controversy: 'Refreshed controversy',
+      editorView: 'Refreshed editor view',
+      provider: 'refreshed',
+      promptVersion: 'quick-summary-v2',
+      generatedAt: '2026-05-12T09:15:00Z',
+    })
+    setActivePinia(createPinia())
+    const store = useAiSummaryStore()
+
+    await store.refreshSummary('art_01')
+
+    expect(fetchAiSummary).toHaveBeenCalledWith('art_01')
+    expect(store.byArticleId.art_01.provider).toBe('refreshed')
+  })
+
+  it('keeps AiSummaryPanel wired for empty state generation and refresh', () => {
+    expect(aiSummaryPanelSource).toContain('This article is waiting for an AI summary.')
+    expect(aiSummaryPanelSource).toContain('@click="generateSummary"')
+    expect(aiSummaryPanelSource).toContain('@click="refreshSummary"')
+  })
+
   it('updates bookmark state optimistically', async () => {
     setActivePinia(createPinia())
     const store = useArticleStore()
@@ -336,3 +419,21 @@ describe('articleStore', () => {
     expect(store.resolvedTheme).toBe('light')
   })
 })
+
+const articleFixture: Article = {
+  id: 'art_01',
+  title: 'AI release',
+  summary: 'A short summary',
+  content: 'A short summary',
+  contentText: 'A short summary',
+  contentStatus: 'summary_fallback',
+  contentExtractedAt: null,
+  sourceUrl: 'https://example.com',
+  sourceName: 'Example',
+  sourceLogoUrl: null,
+  tags: ['model'],
+  publishedAt: '2026-05-12T06:00:00Z',
+  hasAiSummary: true,
+  isBookmarked: false,
+  readTimeMinutes: 5,
+}

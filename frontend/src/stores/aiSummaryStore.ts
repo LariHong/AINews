@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { fetchAiSummary, generateAiSummary } from '@/services/aiSummaryApi'
+import { useArticleStore } from '@/stores/articleStore'
 import type { AiSummary } from '@/types/aiSummary'
 
 interface SummaryState {
@@ -41,6 +42,7 @@ export const useAiSummaryStore = defineStore('aiSummaryStore', {
 
       try {
         this.byArticleId[articleId] = await generateAiSummary(articleId, force)
+        useArticleStore().markAiSummaryAvailable(articleId)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unable to generate AI summary'
         const code = error instanceof Error ? error.name : 'API_ERROR'
@@ -48,6 +50,9 @@ export const useAiSummaryStore = defineStore('aiSummaryStore', {
       } finally {
         this.loadingByArticleId[articleId] = false
       }
+    },
+    async refreshSummary(articleId: string): Promise<void> {
+      await this.loadSummary(articleId, true)
     },
   },
 })

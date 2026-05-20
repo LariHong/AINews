@@ -5,6 +5,7 @@ namespace AiDaily.Infrastructure.AI;
 
 public sealed class InMemoryAiSummaryRepository : IAiSummaryRepository
 {
+    private readonly object _syncRoot = new();
     private readonly List<AiSummary> _summaries =
     [
         new AiSummary
@@ -43,19 +44,42 @@ public sealed class InMemoryAiSummaryRepository : IAiSummaryRepository
         }
     ];
 
-    public Task<AiSummary?> GetByArticleIdAsync(string articleId, CancellationToken cancellationToken) =>
-        Task.FromResult(_summaries.FirstOrDefault(summary => summary.ArticleId == articleId));
+    public Task<AiSummary?> GetByArticleIdAsync(string articleId, CancellationToken cancellationToken)
+    {
+        lock (_syncRoot)
+        {
+            return Task.FromResult(_summaries.FirstOrDefault(summary => summary.ArticleId == articleId));
+        }
+    }
+
+    public Task<IReadOnlySet<string>> ListArticleIdsWithSummariesAsync(
+        IEnumerable<string> articleIds,
+        CancellationToken cancellationToken)
+    {
+        var requested = articleIds.ToHashSet(StringComparer.Ordinal);
+        lock (_syncRoot)
+        {
+            return Task.FromResult<IReadOnlySet<string>>(
+                _summaries
+                    .Where(summary => requested.Contains(summary.ArticleId))
+                    .Select(summary => summary.ArticleId)
+                    .ToHashSet(StringComparer.Ordinal));
+        }
+    }
 
     public Task SaveAsync(AiSummary summary, CancellationToken cancellationToken)
     {
-        var existingIndex = _summaries.FindIndex(item => item.ArticleId == summary.ArticleId);
-        if (existingIndex >= 0)
+        lock (_syncRoot)
         {
-            _summaries[existingIndex] = summary;
-        }
-        else
-        {
-            _summaries.Add(summary);
+            var existingIndex = _summaries.FindIndex(item => item.ArticleId == summary.ArticleId);
+            if (existingIndex >= 0)
+            {
+                _summaries[existingIndex] = summary;
+            }
+            else
+            {
+                _summaries.Add(summary);
+            }
         }
 
         return Task.CompletedTask;

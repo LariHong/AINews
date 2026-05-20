@@ -182,6 +182,28 @@ export const useArticleStore = defineStore('articleStore', {
         this.errorMessage = error instanceof Error ? error.message : 'Unable to restore article'
       }
     },
+    markAiSummaryAvailable(articleId: string): void {
+      if (!articleId) return
+
+      const articleFromList = this.articles.find((item) => item.id === articleId)
+      const selectedArticleMatches = this.selectedArticle?.id === articleId
+      const wasMissing = articleFromList?.hasAiSummary === false || this.selectedArticle?.id === articleId && this.selectedArticle.hasAiSummary === false
+
+      this.articles = this.articles.map((item) =>
+        item.id === articleId ? { ...item, hasAiSummary: true } : item)
+
+      if (selectedArticleMatches && this.selectedArticle) {
+        this.selectedArticle = { ...this.selectedArticle, hasAiSummary: true }
+      }
+
+      if (wasMissing && this.dashboardStats) {
+        this.dashboardStats = {
+          ...this.dashboardStats,
+          aiSummarizedCount: this.dashboardStats.aiSummarizedCount + 1,
+          updatedAt: new Date().toISOString(),
+        }
+      }
+    },
     patchBookmarkState(articleId: string, isBookmarked: boolean): void {
       this.articles = this.articles.map((item) =>
         item.id === articleId ? { ...item, isBookmarked } : item)

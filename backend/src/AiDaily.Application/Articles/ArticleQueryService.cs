@@ -1,4 +1,5 @@
 using AiDaily.Domain.Entities;
+using AiDaily.Application.AiSummaries;
 using AiDaily.Application.Bookmarks;
 using AiDaily.Application.UserPreferences;
 
@@ -7,15 +8,18 @@ namespace AiDaily.Application.Articles;
 public sealed class ArticleQueryService
 {
     private readonly IArticleRepository _articles;
+    private readonly IAiSummaryRepository _summaries;
     private readonly IBookmarkRepository _bookmarks;
     private readonly IHiddenArticleRepository _hiddenArticles;
 
     public ArticleQueryService(
         IArticleRepository articles,
+        IAiSummaryRepository summaries,
         IBookmarkRepository bookmarks,
         IHiddenArticleRepository hiddenArticles)
     {
         _articles = articles;
+        _summaries = summaries;
         _bookmarks = bookmarks;
         _hiddenArticles = hiddenArticles;
     }
@@ -43,10 +47,16 @@ public sealed class ArticleQueryService
             startIndex = filtered.Count;
         }
 
-        var page = filtered
+        var pageArticles = filtered
             .Skip(startIndex)
             .Take(parameters.SafeLimit)
-            .Select(article => ArticleDto.FromArticle(article, bookmarkIds.Contains(article.Id)))
+            .ToList();
+        var summaryIds = await GetSummaryIdsAsync(pageArticles, cancellationToken);
+        var page = pageArticles
+            .Select(article => ArticleDto.FromArticle(
+                article,
+                bookmarkIds.Contains(article.Id),
+                article.HasAiSummary || summaryIds.Contains(article.Id)))
             .ToList();
 
         var nextIndex = startIndex + page.Count;
@@ -76,7 +86,11 @@ public sealed class ArticleQueryService
         }
 
         var bookmarkIds = await GetBookmarkIdsAsync(userId, cancellationToken);
-        return ArticleDto.FromArticle(article, bookmarkIds.Contains(article.Id));
+        var summaryIds = await GetSummaryIdsAsync([article], cancellationToken);
+        return ArticleDto.FromArticle(
+            article,
+            bookmarkIds.Contains(article.Id),
+            article.HasAiSummary || summaryIds.Contains(article.Id));
     }
 
     private static IEnumerable<Article> ApplyFilters(
@@ -138,6 +152,20 @@ public sealed class ArticleQueryService
         }
 
         return await _hiddenArticles.ListArticleIdsAsync(userId, cancellationToken);
+    }
+
+    private Task<IReadOnlySet<string>> GetSummaryIdsAsync(
+        IReadOnlyCollection<Article> articles,
+        CancellationToken cancellationToken)
+    {
+        var articleIds = articles
+            .Where(article => !article.HasAiSummary)
+            .Select(article => article.Id)
+            .ToList();
+
+        return articleIds.Count == 0
+            ? Task.FromResult<IReadOnlySet<string>>(new HashSet<string>())
+            : _summaries.ListArticleIdsWithSummariesAsync(articleIds, cancellationToken);
     }
 
     private static string EncodeCursor(int index) =>

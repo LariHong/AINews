@@ -1,4 +1,5 @@
 using AiDaily.Application.Articles;
+using AiDaily.Application.AiSummaries;
 using AiDaily.Application.FeedCrawler;
 using AiDaily.Domain.Entities;
 
@@ -7,15 +8,18 @@ namespace AiDaily.Application.Stats;
 public sealed class DashboardStatsQueryService
 {
     private readonly IArticleRepository _articles;
+    private readonly IAiSummaryRepository _summaries;
     private readonly IFeedCrawlStatusReader _feedCrawlStatus;
     private readonly TimeProvider _timeProvider;
 
     public DashboardStatsQueryService(
         IArticleRepository articles,
+        IAiSummaryRepository summaries,
         IFeedCrawlStatusReader feedCrawlStatus,
         TimeProvider timeProvider)
     {
         _articles = articles;
+        _summaries = summaries;
         _feedCrawlStatus = feedCrawlStatus;
         _timeProvider = timeProvider;
     }
@@ -28,10 +32,15 @@ public sealed class DashboardStatsQueryService
             .Where(article => DateOnly.FromDateTime(article.PublishedAt.UtcDateTime) == today)
             .OrderByDescending(article => article.PublishedAt)
             .ToList();
+        var summaryIds = await _summaries.ListArticleIdsWithSummariesAsync(
+            todayArticles
+                .Where(article => !article.HasAiSummary)
+                .Select(article => article.Id),
+            cancellationToken);
 
         return new DashboardStatsDto(
             todayArticles.Count,
-            todayArticles.Count(article => article.HasAiSummary),
+            todayArticles.Count(article => article.HasAiSummary || summaryIds.Contains(article.Id)),
             BuildBreakdown(todayArticles.SelectMany(article => article.Tags)),
             BuildBreakdown(todayArticles.Select(article => article.SourceName)),
             todayArticles.Count == 0 ? null : todayArticles.Max(article => article.PublishedAt),
