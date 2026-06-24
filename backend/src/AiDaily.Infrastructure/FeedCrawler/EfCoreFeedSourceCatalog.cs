@@ -7,6 +7,13 @@ namespace AiDaily.Infrastructure.FeedCrawler;
 
 public sealed class EfCoreFeedSourceCatalog : IFeedSourceCatalog, IFeedSourceMetadataRepository
 {
+    private static readonly string[] RetiredSeedSourceIds =
+    [
+        "venturebeat-ai",
+        "machine-brief",
+        "planet-ai"
+    ];
+
     private readonly AiDailyDbContext _dbContext;
 
     public EfCoreFeedSourceCatalog(AiDailyDbContext dbContext)
@@ -49,12 +56,35 @@ public sealed class EfCoreFeedSourceCatalog : IFeedSourceCatalog, IFeedSourceMet
 
     public async Task SeedDefaultsAsync(CancellationToken cancellationToken = default)
     {
-        if (await _dbContext.FeedSources.AnyAsync(cancellationToken))
+        foreach (var seed in SeedFeedSources.All)
         {
-            return;
+            var existing = await _dbContext.FeedSources
+                .FirstOrDefaultAsync(item => item.Id == seed.Id || item.FeedUrl == seed.FeedUrl, cancellationToken);
+
+            if (existing is null)
+            {
+                _dbContext.FeedSources.Add(Clone(seed));
+                continue;
+            }
+
+            if (existing.Id != seed.Id)
+            {
+                _dbContext.FeedSources.Remove(existing);
+                _dbContext.FeedSources.Add(Clone(seed, existing.LastCrawledAt));
+                continue;
+            }
+
+            _dbContext.Entry(existing).CurrentValues.SetValues(Clone(seed, existing.LastCrawledAt));
         }
 
-        _dbContext.FeedSources.AddRange(SeedFeedSources.All.Select(Clone));
+        var retiredSources = await _dbContext.FeedSources
+            .Where(source => RetiredSeedSourceIds.Contains(source.Id) && source.IsEnabled)
+            .ToListAsync(cancellationToken);
+        foreach (var retiredSource in retiredSources)
+        {
+            _dbContext.Entry(retiredSource).Property(source => source.IsEnabled).CurrentValue = false;
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
@@ -65,11 +95,11 @@ public sealed class EfCoreFeedSourceCatalog : IFeedSourceCatalog, IFeedSourceMet
             return;
         }
 
-        _dbContext.FeedSources.AddRange(SeedFeedSources.All.Select(Clone));
+        _dbContext.FeedSources.AddRange(SeedFeedSources.All.Select(source => Clone(source)));
         _dbContext.SaveChanges();
     }
 
-    private static FeedSource Clone(FeedSource source) =>
+    private static FeedSource Clone(FeedSource source, DateTimeOffset? lastCrawledAt = null) =>
         new()
         {
             Id = source.Id,
@@ -82,6 +112,6 @@ public sealed class EfCoreFeedSourceCatalog : IFeedSourceCatalog, IFeedSourceMet
             SourceQualityTier = source.SourceQualityTier,
             QualityNotes = source.QualityNotes,
             IsEnabled = source.IsEnabled,
-            LastCrawledAt = source.LastCrawledAt
+            LastCrawledAt = lastCrawledAt ?? source.LastCrawledAt
         };
 }

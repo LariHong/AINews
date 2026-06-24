@@ -39,6 +39,7 @@ await ShouldFallbackWhenContentExtractionFails();
 await ShouldCrawlRssIntoArticles();
 await ShouldPersistArticlesAcrossDbContextRestart();
 await ShouldPersistFeedMetadataAcrossDbContextRestart();
+await ShouldSyncSeedFeedSourcesIntoExistingCatalog();
 await ShouldScanBeyondFirstTenLowValueCandidates();
 await ShouldRejectCandidateWhenOnlySourceMetadataContainsAi();
 await ShouldAcceptCoreSourceShortNamedProductTitle();
@@ -377,6 +378,67 @@ async Task ShouldPersistFeedMetadataAcrossDbContextRestart()
         Assert(source.FeedUrl == "https://example.com/rss.xml", "DB feed catalog should persist feed URL metadata");
         Assert(source.LastCrawledAt == crawledAt, "DB feed catalog should persist last crawled timestamp");
         Assert(source.SourceQualityTier == "core", "DB feed catalog should persist source quality tier");
+    }
+}
+
+async Task ShouldSyncSeedFeedSourcesIntoExistingCatalog()
+{
+    await using var connection = new SqliteConnection("DataSource=:memory:");
+    await connection.OpenAsync();
+    var options = new DbContextOptionsBuilder<AiDailyDbContext>()
+        .UseSqlite(connection)
+        .Options;
+
+    var crawledAt = DateTimeOffset.Parse("2026-05-13T09:00:00Z");
+    await using (var dbContext = new AiDailyDbContext(options))
+    {
+        await dbContext.Database.EnsureCreatedAsync();
+        dbContext.FeedSources.AddRange(
+            new FeedSource
+            {
+                Id = "openai-news",
+                Name = "Old OpenAI Source",
+                FeedUrl = "https://old.example.com/openai.xml",
+                SiteUrl = "https://old.example.com",
+                SourceType = "rss",
+                TopicScope = "ai",
+                DefaultCandidateLimit = 10,
+                SourceQualityTier = "watch",
+                QualityNotes = "Old source metadata.",
+                IsEnabled = true,
+                LastCrawledAt = crawledAt
+            },
+            new FeedSource
+            {
+                Id = "venturebeat-ai",
+                Name = "VentureBeat AI",
+                FeedUrl = "https://venturebeat.com/category/ai/feed/",
+                SiteUrl = "https://venturebeat.com/category/ai/",
+                SourceType = "rss",
+                TopicScope = "ai-news",
+                DefaultCandidateLimit = 30,
+                SourceQualityTier = "core",
+                QualityNotes = "Retired seed source.",
+                IsEnabled = true
+            });
+        await dbContext.SaveChangesAsync();
+
+        var catalog = new EfCoreFeedSourceCatalog(dbContext);
+        await catalog.SeedDefaultsAsync(CancellationToken.None);
+    }
+
+    await using (var restartedContext = new AiDailyDbContext(options))
+    {
+        var allSources = await restartedContext.FeedSources.AsNoTracking().OrderBy(source => source.Id).ToListAsync();
+        var enabledSources = new EfCoreFeedSourceCatalog(restartedContext).GetEnabledSources();
+        var openAi = allSources.Single(source => source.Id == "openai-news");
+        var retired = allSources.Single(source => source.Id == "venturebeat-ai");
+
+        Assert(SeedFeedSources.All.All(seed => enabledSources.Any(source => source.Id == seed.Id)), "existing DB catalog should receive every current S2-4 seed source");
+        Assert(openAi.FeedUrl == "https://openai.com/news/rss.xml", "existing seed source metadata should be refreshed from S2-4 defaults");
+        Assert(openAi.SourceQualityTier == "core", "existing seed source tier should be refreshed from S2-4 defaults");
+        Assert(openAi.LastCrawledAt == crawledAt, "seed source sync should preserve last crawled metadata");
+        Assert(!retired.IsEnabled, "retired low-signal seed sources should be disabled in existing catalogs");
     }
 }
 
