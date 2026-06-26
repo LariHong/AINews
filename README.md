@@ -2,7 +2,7 @@
 
 AI Daily 是一個以 AI 新聞聚合、摘要與深度分析為核心的全端專案。前端使用 Vue 3、Vite、Pinia 與 TypeScript，後端使用 ASP.NET Core 8 Web API，並提供 RSS 抓取、文章瀏覽、收藏、偏好設定、AI 摘要與 AI 深度報告等 MVP 功能。
 
-> 目前專案偏向本機開發與 MVP 驗證狀態。文章、收藏、摘要快取與使用者偏好預設多使用 in-memory repository；可透過設定切換文章資料來源到 PostgreSQL。
+> 目前專案偏向本機開發與 MVP 驗證狀態。文章、AI 摘要/報告、收藏與隱藏偏好預設使用 in-memory repository；可透過設定切換這些 MVP state 到 PostgreSQL。Redis 仍不是 production cache adapter。
 
 ## 功能特色
 
@@ -64,17 +64,23 @@ docker compose up -d
 Copy-Item backend\src\AiDaily.API\appsettings.Local.example.json backend\src\AiDaily.API\appsettings.Local.json
 ```
 
-預設設定使用 in-memory 文章 repository：
+預設設定使用 in-memory repository：
 
 ```json
 {
   "Persistence": {
-    "ArticleRepository": "InMemory"
+    "ArticleRepository": "InMemory",
+    "AiSummaryRepository": "InMemory",
+    "AiReportRepository": "InMemory",
+    "BookmarkRepository": "InMemory",
+    "HiddenArticleRepository": "InMemory"
   }
 }
 ```
 
-若要改用 PostgreSQL 儲存文章，可將 `ArticleRepository` 改成 `Postgres`、`PostgreSQL`、`Db` 或 `Database`，並確認 `ConnectionStrings:AiDaily` 指向本機資料庫。
+若要改用 PostgreSQL 儲存既有 MVP state，可將需要持久化的 repository key 改成 `Postgres`、`PostgreSQL`、`Db` 或 `Database`，並確認 `ConnectionStrings:AiDaily` 指向本機資料庫。可切換的 key 包含 `ArticleRepository`、`AiSummaryRepository`、`AiReportRepository`、`BookmarkRepository` 與 `HiddenArticleRepository`。
+
+目前 API 啟動時仍使用 transitional `EnsureCreatedAsync` 建立本機 schema，原因是專案尚未把 EF migrations 建立為正式 schema 變更流程。這只適合本機 MVP hardening；production-like schema evolution 應在後續 slice 導入 migrations。
 
 AI 深度報告預設可使用 stub provider。若要使用 Gemini，請在 `appsettings.Local.json` 設定：
 
@@ -174,7 +180,7 @@ X-AI-Daily-Local-User: local-dev-user
 
 ## 開發狀態與注意事項
 
-- 此 repo 目前是 MVP 階段，部分資料流仍是 in-memory，重啟 API 後可能會消失。
+- 此 repo 目前是 MVP 階段，預設仍偏 in-memory；若將 Article、AI summary/report、Bookmark、HiddenArticle repository 設為 PostgreSQL，既有 MVP state 可在 API 重啟後保留。
 - `docker-compose.yml` 已提供 PostgreSQL 與 Redis，但目前 Redis 尚不是所有快取流程的必要執行依賴。
 - AI 快速摘要使用 stub generator；AI 深度報告可依設定使用 stub 或 Gemini。
 - 目前沒有正式驗證、授權與 production deployment 設定；請勿直接視為 production-ready。

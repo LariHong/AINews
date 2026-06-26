@@ -28,7 +28,7 @@ S1. 可閱讀的文章列表
 
 S1 是專案起步時的第一個切片，因為它能證明產品最核心的使用者價值：使用者打開 app 後，可以快速掃描近期 AI 文章。它也建立了後續切片沿用的 repo 結構、API 慣例、資料模型與前端資料流。
 
-目前不要從 S1 重新開始。新的 implementation 入口以 `Prompt-Ready Next Work` 的 `Recommended Order` 為準。
+目前不要從 S1 重新開始。新的 implementation 入口以 `Prompt-Ready Next Work` 的 `Current Canonical Next Work` 為準。
 
 ## 目前切片狀態
 
@@ -42,20 +42,20 @@ Status legend:
 
 | Slice | 狀態 | 目前實作事實 | 主要缺口 | 驗證狀態 |
 |------|------|------|------|------|
-| S1 文章列表 | partial / volatile MVP | `GET /api/v1/articles`、Dashboard UI、filter、pagination 已存在 | 核心資料仍是 in-memory；cursor 是 offset index，不是穩定 keyset cursor；缺 HTTP integration test | 後端 service tests 與前端 store tests 有覆蓋 |
+| S1 文章列表 | partial / persistence-capable MVP | `GET /api/v1/articles`、Dashboard UI、filter、pagination 與可選 PostgreSQL article repository 已存在 | 預設仍可用 in-memory；cursor 是 offset index，不是穩定 keyset cursor；缺 HTTP integration test | 後端 service tests 與前端 store tests 有覆蓋 |
 | S1-1 Dashboard stats | partial | `GET /api/v1/stats/today`、Dashboard stats row 與 source sync status 已存在 | 文件狀態落後；AI summary count 依賴 article flag，生成後可能不同步；缺 HTTP/frontend component 測試 | 後端 service test 有覆蓋 |
-| S2 Article detail / feed import | partial / volatile MVP | `GET /api/v1/articles/{id}`、RSS crawler、content extraction、cold-start sync 已存在 | RSS/文章資料無 DB persistence；rejected candidates 目前只 log 不保存；reader detail 對 hidden/rejected direct access policy 未定 | 後端 service tests 有覆蓋 |
-| S3 AI quick summary | partial / volatile MVP | quick summary read/generate/cache、provider metadata、promptVersion 已存在 | summary persistence/cache 仍 in-memory；`article.hasAiSummary` 不會隨生成同步；quick summary 生成缺並行防重與 provider error mapping | 後端 service tests 與前端 store tests 有覆蓋 |
-| S4 AI deep report | partial / contract hardening | report read/generate、Gemini/Stub provider、版本化 MVP SSE contract、schema normalizer/validator、per-user/per-article rate limit 已存在 | persistence 仍是 in-memory；spec target 的 Claude provider 與 `start/chunk/field_done/done/error` SSE shape 仍是已文件化偏差 | 後端 service 與 SSE wire-level tests、前端 SSE parser tests 有覆蓋 |
-| S5 bookmarks/theme | partial / volatile MVP | bookmark mutation/list、theme preference、bookmarks/settings UI、local-user strategy 已存在 | bookmark/personalization 仍 in-memory；尚未有正式 auth；mutation error 會污染全域 article error state | 後端 service tests 與前端 store tests 有覆蓋 |
-| S5-1 hidden articles | partial / volatile MVP | Article card/report actions 可 hide/restore；一般列表依 local-user hidden preference 排除；提供 undo/settings restore | hidden state 仍 in-memory；detail/report direct access policy 未定；pagination 仍可能因 offset cursor 漏/重複 | 後端 service tests 與前端 store tests 有覆蓋 |
+| S2 Article detail / feed import | partial / persistence-capable MVP | `GET /api/v1/articles/{id}`、RSS crawler、content extraction、cold-start sync 與可選 PostgreSQL article/feed persistence 已存在 | rejected candidates 目前只 log 不保存；reader detail 對 hidden/rejected direct access policy 未定 | 後端 service tests 有覆蓋 |
+| S3 AI quick summary | partial / persistence-capable MVP | quick summary read/generate/cache、provider metadata、promptVersion 與可選 PostgreSQL summary repository 已存在 | summary read cache / generation tracker 仍 in-memory；quick summary 生成缺 provider error mapping | 後端 service tests 與前端 store tests 有覆蓋 |
+| S4 AI deep report | partial / contract hardening | report read/generate、可選 PostgreSQL report repository、Gemini/Stub provider、版本化 MVP SSE contract、schema normalizer/validator、per-user/per-article rate limit 已存在 | report generation tracker/rate limit 仍 in-memory；spec target 的 Claude provider 與 `start/chunk/field_done/done/error` SSE shape 仍是已文件化偏差 | 後端 service 與 SSE wire-level tests、前端 SSE parser tests 有覆蓋 |
+| S5 bookmarks/theme | partial / persistence-capable MVP | bookmark mutation/list、theme preference、bookmarks/settings UI、local-user strategy 與可選 PostgreSQL bookmark repository 已存在 | 尚未有正式 auth；mutation error 會污染全域 article error state | 後端 service tests 與前端 store tests 有覆蓋 |
+| S5-1 hidden articles | partial / persistence-capable MVP | Article card/report actions 可 hide/restore；一般列表依 local-user hidden preference 排除；提供 undo/settings restore；hidden preference 可切 PostgreSQL | detail/report direct access policy 未定；pagination 仍可能因 offset cursor 漏/重複 | 後端 service tests 與前端 store tests 有覆蓋 |
 | M1 Verification infrastructure baseline | done | 前端 Vite config 改為 `vite.config.cjs` 並將 Vite/Vitest cache 導到 `.tmp/vite-cache`；後端 `AiDaily.UnitTests` 接上 xUnit / VSTest runner，`dotnet test` 會執行既有 console assertion suite | Vite CJS Node API 有 deprecation warning；後端目前只有一個 xUnit wrapper fact，尚未拆成多個獨立 test cases | `npm.cmd run test`、`npm.cmd run build`、`dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`dotnet build backend/AiDaily.sln` 已驗證 |
 
 ## Current Contract Deviations
 
 - AI provider: spec target 是 Anthropic/Claude；目前 MVP 可用 Gemini 或 Stub。S4-1 預設先文件化 Gemini/Stub MVP deviation，並保持 `IAiReportGenerator` 介面穩定；若要切回 Claude，需由使用者明確指定。
 - SSE events: spec target 是 `start/chunk/field_done/done/error`；目前實作是 `started/status/report/completed/error`。S4-1 預設版本化目前 MVP contract；若要改成 spec shape，需先停下來問使用者。
-- Persistence: spec target 是 PostgreSQL 與 Redis；目前 core repositories/cache 多為 in-memory，屬於 volatile MVP。
+- Persistence: PostgreSQL repository paths 已涵蓋 Article、FeedSource、AiSummary、AiReport、Bookmark、HiddenArticle；預設仍可用 in-memory fallback。Redis cache/rate-limit 與正式 migrations 尚未完成。
 - Rate limit/auth: spec 有 AI/API rate limit 與驗證要求；S4-1 只處理 AI generate rate limit/auth guard。Feed crawl POST guard 屬於獨立 API write guard follow-up，不放進 S4-1。
 - Pagination: 文件稱 cursor pagination；目前 cursor 是 base64 offset index，不是 `(publishedAt, ingestionScore, id)` 類 keyset cursor。
 - Feed rejected metadata: policy 期望保留 rejected metadata；目前 crawler 對 rejected candidates 只 log 後略過。
@@ -99,232 +99,78 @@ Status legend:
 
 ## Prompt-Ready Next Work
 
-這一段是給使用者或下一個 agent 直接選任務用的 canonical 入口。若不確定要做什麼，優先照 `Recommended Order` 從上往下做；每次只做一個 item，不要把多個 slice 混在同一輪。
+這一段是給使用者或下一個 agent 直接選任務用的 canonical 入口。若不確定要做什麼，先讀本段；若本段和下方歷史 slice、`Next actions` 或最後 handoff YAML 衝突，以本段為準。
 
-若本段和下方某個 slice 的 `Next actions` 或最後的 handoff YAML 看起來衝突，以本段為準；下方 slice 內容是 reference 與 owner context。
+### Slice Discussion Routing Rules
 
-### Recommended Order
+當使用者和 AI 討論「切片、下一步、優化順序、roadmap、現階段該做什麼」時，必須先套用 `agent-workflow-router` 的路由規則，再決定是否進入重 workflow：
 
-| 順序 | Prompt target | Owner slice | Branch suggestion | 做完代表什麼 |
-| --- | --- | --- | --- | --- |
-| 1 | AI report contract hardening | `S4-1` | `feature/s4-1-report-contract-hardening` | SSE/provider/rate-limit contract 穩定，昂貴 AI 入口不再裸奔 |
-| 2 | Article/feed persistence baseline | `P1a` | `feature/p1a-article-feed-persistence` | feed articles 與 feed metadata 重啟後仍存在 |
-| 3 | Quick summary state sync | `S3-1` | `feature/s3-1-summary-state-sync` | 生成 summary 後 article badge/stats/cache 狀態一致 |
-| 4 | Feed relevance gate and ranking hardening | `S2-3b` | `feature/s2-3b-feed-relevance-ranking` | 低訊號 RSS candidate 不因 source metadata 含 AI 而進 feed，reader list 不再只偏新鮮度 |
-| 5 | Rejected metadata decision | `S2-3a` | `feature/s2-3a-rejected-metadata-decision` | rejected candidates 不再只是在計畫裡消失 |
-| 6 | Source/content quality upgrade | `S2-4` | `feature/s2-4-source-content-quality` | 來源少而精，正文抽取不再把雜訊或短摘要假裝成 full content |
-| 7 | Reader list cursor hardening | `S1` follow-up | `feature/s1-article-list-cursor-hardening` | hidden/filter/new articles 下 pagination 不漏不重 |
+- 只是問概念、比較、原則或「為什麼這樣切」：直接回答，不改檔。
+- 要把已明確的功能、優化方向或專案動作切成可執行 slices：使用 `slice-planner`，並把完整 plan 持久化到 Markdown artifact。
+- 已指定單一 slice、acceptance、not_included，且要求實作 code：使用 `build-and-learn-loop`，一次只做一個 slice。
+- 實作已改變，且需要同步 spec、PRD、slice plan 或 planning docs：使用 `project-doc-sync`。
+- 要 commit、push、publish、PR、merge 或 release：先停在 Git confirmation gate，不得把 planning artifact 當作已確認發布清單。
 
-### Copy-Paste Prompts
+切片討論的核心準則：
 
-#### 1. S4-1 AI report contract hardening
+- 不要只在聊天裡形成「下一步共識」；會影響下一個 agent 的決策時，必須更新 canonical planning artifact。
+- `docs/slices/ai-daily-slices.md` 是本專案現階段的入口索引；詳細優化 acceptance 可拆到其他 Markdown，但本檔必須指到正確 current next work。
+- 每次只交接一個可驗收 slice；不要把多個優化項混成一次 build。
+- 新增輔助 MD 可以，但不能讓 `ai-daily-slices.md` 停留在舊 Recommended Order，只靠對話上下文補救。
+
+### Current Canonical Next Work
+
+現階段主線不是延續舊的 S4-1/P1a/S3-1 排程，而是先執行整體 MVP hardening roadmap。詳細 slice artifact 是 `docs/slices/ai-daily-optimization-slices.md`；本檔是讓下一個 agent 自動找到該 artifact 的 canonical router。
+
+| 順序 | Prompt target | Owner slice | Artifact | Branch suggestion | 做完代表什麼 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Persistence foundation for existing MVP state | `O1` | `docs/slices/ai-daily-optimization-slices.md` | `feature/o1-persistence-foundation` | done: feed、AI artifacts、bookmark、hidden preference 可切 PostgreSQL repository |
+| 2 | API write guard and local-user boundary | `O2` | `docs/slices/ai-daily-optimization-slices.md` | `feature/o2-api-write-guard` | next: CORS、feed crawl POST、local-user identity、AI/write endpoints 有最小安全邊界 |
+| 3 | AI report route and generated-content contract cleanup | `O3` | `docs/slices/ai-daily-optimization-slices.md` | `feature/o3-ai-report-route-contract` | report generation endpoint、SSE contract、provider errors 與 docs 語意一致 |
+| 4 | Verification modernization | `O4` | `docs/slices/ai-daily-optimization-slices.md` | `feature/o4-verification-modernization` | 後端大 wrapper test 拆得更可維護，前端 Vite config/verification 基線更穩 |
+| 5 | Frontend API and state cleanup | `O5` | `docs/slices/ai-daily-optimization-slices.md` | `feature/o5-frontend-api-state-cleanup` | API error parsing 與 mutation state 不再互相污染 |
+| 6 | Reader cursor hardening | `O6` | `docs/slices/ai-daily-optimization-slices.md` | `feature/o6-reader-cursor-hardening` | hidden/filter/new articles 下 pagination 不漏不重 |
+
+下一個要交給 `build-and-learn-loop` 的 slice 是 `O2. API Write Guard And Local-User Boundary`。O1 persistence foundation 已完成目前 MVP baseline；後續若要 production-grade schema evolution，另開 migrations slice。
+
+### Copy-Paste Prompt For Current First Slice
 
 ```text
-請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S4-1，實作 AI report provider、SSE contract、rate limit 與 spec 偏差回補。
+請遵守根目錄 AGENTS.md，並依 docs/slices/ai-daily-slices.md 的 Current Canonical Next Work 進入 docs/slices/ai-daily-optimization-slices.md 的 O2。
 
-只做 S4-1，不要做 persistence baseline、quick summary、feed quality、feed crawl POST guard、bookmark/hidden 功能。
+只做 O2. API Write Guard And Local-User Boundary。不要同時做 AI report route cleanup、verification modernization、frontend state cleanup、cursor hardening、CI/CD、Redis production cache 或 formal auth。
 
 開始前先回報 git_flow_classification，預設：
 - base_branch: develop
 - branch_type: feature
-- suggested_branch_name: feature/s4-1-report-contract-hardening
+- suggested_branch_name: feature/o2-api-write-guard
 
-成功標準：
-- SSE contract 預設採「版本化目前 MVP shape」：`started/status/report/completed/error`，並寫成明確 API/SSE contract。若你認為必須改成 spec shape `start/chunk/field_done/done/error`，先停下來問使用者，不要自行拍板。
-- AI generation 有 per-user/per-article 或等價最小 rate limit。
-- 超過限制回文件化錯誤，例如 AI_RATE_LIMIT_EXCEEDED。
-- Provider error 不洩漏 API key、raw provider URL 或 secret。
-- Prompt content 有 deterministic length/token budget 上限。
-- 補後端 HTTP/SSE integration tests，以及前端 SSE parser 或 composable tests。
-
-validation_commands:
-- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
-- npm test
-- npm run build
-
-如果 npm 指令在本機工具層無法執行，必須回報未驗證前端，不可宣稱完成。
-```
-
-#### 2. P1a article/feed persistence baseline
-
-```text
-請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 P1a，實作 Article/feed persistence baseline。
-
-只做 P1a，不要同時改 SSE contract、rate limit、AI summary/report persistence、bookmark/hidden persistence、auth UI 或 CI/CD。
-
-開始前先回報 git_flow_classification，預設：
-- base_branch: develop
-- branch_type: feature
-- suggested_branch_name: feature/p1a-article-feed-persistence
-
-成功標準：
-- EF Core AiDailyDbContext 不再只是 placeholder。
-- Article、FeedSource 或等價 feed metadata 有 PostgreSQL mapping。
-- Article source identity 或 SourceUrl 有 unique constraint，避免 RSS sync 重複寫入。
-- Content status、content text、contentExtractedAt、ingestionScore、matchedKeywords、sourceQualityTier 有可保存欄位或明確 deferral。
-- API 可用設定選擇 DB article/feed repository；in-memory adapter 保留給 tests/dev fallback。
-- API 重啟後仍可讀到 feed articles 與 feed metadata。
-- 補 article/feed repository persistence tests 或 lightweight integration tests。
+成功標準以 docs/slices/ai-daily-optimization-slices.md 的 O2 acceptance 為準。
 
 validation_commands:
 - dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
 - dotnet build backend/AiDaily.sln
-
-如果 build 因既有 obj/bin 檔案鎖定失敗，必須回報鎖定錯誤與未完成的驗證，不要清除檔案或 reset。
+- npm.cmd run test
+- npm.cmd run build
 ```
 
-#### 3. S3-1 quick summary state sync
+### Current Do Not Start From These
 
-```text
-請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S3-1，修正 AI quick summary state sync 與 cache correctness。
-
-只做 S3-1，不要同時做 deep report SSE、PostgreSQL persistence baseline、Redis adapter 或 feed crawler。
-
-開始前先回報 git_flow_classification，預設：
-- base_branch: develop
-- branch_type: feature
-- suggested_branch_name: feature/s3-1-summary-state-sync
-
-成功標準：
-- 生成 summary 後，article list/detail 的 hasAiSummary 與 Dashboard AI Briefs count 能反映新狀態。
-- quick summary generation 有並行防重或最小 tracker。
-- provider failure 有 domain-level error mapping，不只落成 500。
-- forced regeneration 成功保存後才替換舊 cache。
-- 補 AiSummaryPanel/store/service tests，覆蓋 empty、generate、error、refresh。
-
-validation_commands:
-- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
-- npm test
-
-如果 npm 指令在本機工具層無法執行，必須回報未驗證前端。
-```
-
-#### 4. S2-3b feed relevance gate and ranking hardening
-
-```text
-請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S2-3b，修正 Feed relevance gate and ranking hardening。
-
-只做 S2-3b，不要同時做 rejected candidate audit persistence、admin/debug UI、LLM ranking、大規模 source expansion、persistence baseline 或 cursor hardening。
-
-開始前先回報 git_flow_classification，預設：
-- base_branch: develop
-- branch_type: feature
-- suggested_branch_name: feature/s2-3b-feed-relevance-ranking
-
-成功標準：
-- AI relevance 判斷主要依 title、summary、canonical URL 或明確 allowlist topic；source.Name/source.TopicScope 不得讓候選在內容無 AI 訊號時自動通過。
-- Generic `ai` only、過短摘要、活動/公告/列表型低訊號候選需被 deterministic rule 拒絕或明確降分。
-- `ingestionScore` 語意能區分高訊號與勉強相關候選；低於 threshold 的候選不進一般 reader feed。
-- `GET /api/v1/articles` 預設排序有明確 quality-vs-recency 規則，避免低分新文章無條件壓過高分稍早文章。
-- 補測試：source name/topic 含 AI，但 title/summary/sourceUrl 無 AI relevance 時應 rejected。
-- 補測試：高分稍早文章不應被低分新文章無條件壓過；測試需反映實作採用的排序規則。
-- 保留既有 rejected article 排除、candidateLimit 掃描、accepted article ingestion metadata 測試。
-
-validation_commands:
-- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
-```
-
-#### 5. S2-3a rejected metadata decision
-
-```text
-請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S2-3a 與 docs/feed-source-policy.md，處理 rejected candidate metadata decision。
-
-只做 S2-3a 的 rejected candidate 決策，不要重做 broader feed quality rules、candidateLimit、sorting、整個 persistence baseline 或 admin UI。
-
-開始前先回報 git_flow_classification，預設：
-- base_branch: develop
-- branch_type: feature
-- suggested_branch_name: feature/s2-3a-rejected-metadata-decision
-
-成功標準：
-- 明確決定 rejected candidates 要保存 audit metadata，或文件化 logs-only MVP deferral。
-- 若保存：新增 rejected candidate persistence / query test。
-- 若 deferral：更新 feed-source-policy 與 slice 文件，說明目前不能做長期 source quality analysis。
-- 一般 reader feed 仍排除 rejected articles。
-
-validation_commands:
-- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
-```
-
-#### 6. S2-4 source/content quality upgrade
-
-```text
-請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S2-4，改善 AINEWS 的 source/content quality。
-
-只做 S2-4，不要同時做 rejected audit persistence、admin/debug UI、LLM ranking、個人化推薦、完整 search/news API、cursor hardening 或大規模來源擴張。
-
-開始前先回報 git_flow_classification，預設：
-- base_branch: main
-- branch_type: feature
-- suggested_branch_name: feature/s2-4-source-content-quality
-
-成功標準：
-- Seed feed sources 改成少而精：優先官方 AI lab/product/research/policy/engineering feeds 與少量高品質 AI topic feeds；移除或降級明顯低訊號 aggregator/newsletter/watch source。
-- Source tier threshold 更硬：`core`、`standard`、`watch` 或等價 tier 對 accepted score 有不同門檻；watch/aggregator 不得只因 generic AI signal 進一般 reader feed。
-- HTML content extraction 不再把過短正文、navigation/cookie/sidebar/related-posts 雜訊或 RSS summary fallback 標成 `full_content_ready`。
-- 新增 deterministic content quality gate，例如 minimum clean text length、clean text 與 fallback summary 的區分、noise phrase rejection 或 content/source ratio；低品質正文需標成 `summary_fallback` 或 `extraction_failed`。
-- AI summary/report input 只能把 `full_content_ready` 視為完整正文；fallback 狀態不得宣稱已讀完整原文。
-- 補測試：低品質 HTML 不應標成 full content；可讀正文應保留 main article text 並移除 nav/sidebar/cookie 類雜訊；watch source 低訊號候選應被 rejected 或低於 reader threshold。
-- 保留 S2-3b relevance/ranking 測試、S2-3a rejected deferral 文件語意、既有 content extraction fallback 測試。
-
-validation_commands:
-- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
-
-如果 build 因本機 API/Visual Studio 鎖定 bin 檔失敗，可改用隔離 output，例如加上 `--property:BaseOutputPath=<repo>/.tmp/s2-4-test-output/`，並在完成後清理 `.tmp`。
-```
-
-#### 7. S1 reader list cursor hardening
-
-```text
-請遵守根目錄 AGENTS.md，根據 docs/slices/ai-daily-slices.md 的 S1 current gaps，修正 reader list cursor pagination。
-
-只做 article list cursor hardening，不要同時做 persistence baseline、feed crawler 或 AI summary。
-
-開始前先回報 git_flow_classification，預設：
-- base_branch: develop
-- branch_type: feature
-- suggested_branch_name: feature/s1-article-list-cursor-hardening
-
-成功標準：
-- cursor 從 base64 offset index 改成穩定 keyset cursor，例如 publishedAt、ingestionScore、id。
-- hidden/filter/new article 變動下不漏資料、不重複資料。
-- API contract 文件和 tests 反映新 cursor shape。
-- 補後端 query tests；若前端需要調整，補 store tests。
-
-prerequisite:
-- 若 ingestionScore 尚未持久化，仍可使用目前查詢可取得的 stable ordering 欄位；不要因此擴大到 persistence baseline。
-
-validation_commands:
-- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
-- npm test
-```
-
-### Do Not Start From These Yet
-
-- 不要把 `S1-1` 當下一個從零 implementation slice；stats API 和 Dashboard stats row 已部分完成。它現在適合做驗收、補測與 `hasAiSummary` source-of-truth 修正。
-- 不要直接做 CI/CD；目前 persistence、rate limit、SSE contract 還不穩，CI/CD 會先把不穩的 contract 固化。
-- 不要一次做 S4-1 + P1a + S3-1。這些會互相碰到 AI/report/summary 狀態，但 owner slice 不同，應分開 commit。
-
-### CI/CD Readiness Gate
-
-不要把 CI/CD 當下一個 slice。重新啟動 CI/CD 學習或 pipeline 建置前，至少要有：
-
-- `S4-1` 完成，AI report SSE/rate-limit/provider error contract 有測試。
-- `P1a` 完成，Article/feed persistence baseline 有測試。
-- `S3-1` 完成，quick summary state sync/cache correctness 有測試。
-- `git log` 中至少有上述 docs/feature/test commits，可讓 AI 從 commit history 學到「rebaseline -> contract hardening -> persistence -> tests」的順序。
+- 不要從舊 S4-1/P1a/S3-1 Recommended Order 開始，除非使用者明確指定要回到舊產品 slice。
+- 不要直接做 CI/CD；目前 persistence、write guard、AI route contract 與 verification structure 仍需要先穩定。
+- 不要一次做 O1 + O2 + O3。這些會互相碰到 persistence、安全、AI/report/summary 狀態，但 owner slice 不同，應分開驗收。
+- 不要把 `docs/slices/ai-daily-optimization-slices.md` 當成聊天補充；它是目前 hardening roadmap 的詳細 artifact。
 
 ### Evidence / Verification Index
 
 | Area | 主要證據 | 最窄驗證 |
 | --- | --- | --- |
-| S4-1 report contract | `backend/src/AiDaily.Application/AiSummaries`、`backend/src/AiDaily.Infrastructure/AI`、`frontend/src/composables/useAiReportStream.ts` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
-| P1a article/feed persistence | `backend/src/AiDaily.Infrastructure/Persistence`、`backend/src/AiDaily.Infrastructure/Repositories`、`backend/src/AiDaily.Domain/Entities` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`dotnet build backend/AiDaily.sln` |
-| S3-1 summary state sync | `backend/src/AiDaily.Application/AiSummaries`、`frontend/src/components/ai/AiSummaryPanel.vue`、`frontend/src/stores/aiSummaryStore.ts` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
-| S2-3b feed relevance/ranking | `backend/src/AiDaily.Infrastructure/FeedCrawler/FeedArticleQualityFilter.cs`、`backend/src/AiDaily.Application/Articles/ArticleQueryService.cs`、`backend/tests/AiDaily.UnitTests` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
-| S2-3a rejected metadata | `backend/src/AiDaily.Infrastructure/FeedCrawler`、`docs/feed-source-policy.md` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
-| S2-4 source/content quality | `backend/src/AiDaily.Infrastructure/FeedCrawler/SeedFeedSources.cs`、`backend/src/AiDaily.Infrastructure/FeedCrawler/FeedArticleQualityFilter.cs`、`backend/src/AiDaily.Infrastructure/ContentExtraction`、`backend/src/AiDaily.Infrastructure/AI`、`backend/tests/AiDaily.UnitTests` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
-| S1 cursor hardening | `backend/src/AiDaily.Application/Articles`、`frontend/src/stores/articleStore.ts` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
+| O1 persistence foundation | `backend/src/AiDaily.Infrastructure/Persistence`、`backend/src/AiDaily.Infrastructure/Repositories`、`backend/src/AiDaily.Infrastructure/AI`、`backend/src/AiDaily.Domain/Entities` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`dotnet build backend/AiDaily.sln` |
+| O2 write guard / identity boundary | `backend/src/AiDaily.API/Program.cs`、`backend/src/AiDaily.API/Controllers`、`frontend/src/services` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm.cmd run test` |
+| O3 AI route / generated contract | `backend/src/AiDaily.API/Controllers/AiSummaryController.cs`、`backend/src/AiDaily.Application/AiSummaries`、`frontend/src/composables/useAiReportStream.ts` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm.cmd run test` |
+| O4 verification modernization | `backend/tests/AiDaily.UnitTests`、`frontend/vite.config.cjs`、`frontend/package.json` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`dotnet build backend/AiDaily.sln`、`npm.cmd run test`、`npm.cmd run build` |
+| O5 frontend API/state cleanup | `frontend/src/services`、`frontend/src/stores`、`frontend/src/tests` | `npm.cmd run test`、`npm.cmd run build` |
+| O6 reader cursor hardening | `backend/src/AiDaily.Application/Articles`、`backend/src/AiDaily.Infrastructure/Repositories`、`frontend/src/stores/articleStore.ts` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm.cmd run test` |
 
 ## 切片
 
@@ -417,14 +263,14 @@ validation_commands:
 
 #### Known gaps
 
-- RSS imported articles、content extraction result 與 feed source state 仍無 DB persistence。
+- RSS imported articles、content extraction result 與 feed source state 已可透過 PostgreSQL repository 持久化；rejected audit record 仍未保存。
 - Rejected candidates 無法被 debug/admin review，也無法長期調校 source quality。
 - Article detail 對 hidden/rejected article 應回 404、顯示 hidden state，或提供 admin/debug route，需在後續 slice 決策。
 
 #### Next actions
 
 - 在 S2-3 決定 rejected candidate 是「logs-only MVP」還是「保存 rejected audit metadata」。
-- 在 persistence baseline 中納入 article、feed source、content extraction metadata 的資料表與 unique constraints。
+- 若要進一步 productionize persistence，另開 EF migrations / rejected audit metadata slice。
 - 在 reader detail hardening 中補 hidden/rejected direct access behavior 與測試。
 
 ### S3. AI 摘要預覽
@@ -1011,13 +857,13 @@ S2-3b 是針對目前 feed 低價值感的最小可執行修正；它只處理 d
 
 #### Known gaps
 
-- Bookmark repository 是 in-memory；API 重啟後收藏會消失。
+- Bookmark repository 可切 PostgreSQL；預設 in-memory 時 API 重啟後收藏仍會消失。
 - 尚未有正式 auth；local-user id 產生與瀏覽器 storage 例外保護需要補強。
 - Frontend mutation error 目前會寫入全域 article error state，可能干擾 Dashboard/Report 主畫面。
 
 #### Next actions
 
-- 在 persistence baseline 中加入 Bookmark table 與 `(userId, articleId)` unique constraint。
+- 若要 productionize bookmark persistence，另開 EF migrations / auth identity slice；目前已有 Bookmark table mapping 與 `(userId, articleId)` unique key。
 - 拆分 frontend list/detail/mutation errors，讓 bookmark failure 走 toast 或 inline action error。
 - 在正式 auth 前，文件化 local-user strategy 的開發用途與限制。
 
@@ -1066,22 +912,22 @@ S2-3b 是針對目前 feed 低價值感的最小可執行修正；它只處理 d
 
 #### Known gaps
 
-- HiddenArticle repository 是 in-memory；API 重啟後負回饋會消失。
+- HiddenArticle repository 可切 PostgreSQL；預設 in-memory 時 API 重啟後負回饋仍會消失。
 - Article detail/report direct link 對 hidden article 的行為未定。
 - Offset cursor 可能在 hidden item 變動後造成漏頁或重複。
 
 #### Next actions
 
-- 在 persistence baseline 中加入 HiddenArticle table 與 `(userId, articleId)` unique constraint。
+- 若要 productionize hidden preference persistence，另開 EF migrations / auth identity slice；目前已有 HiddenArticle table mapping 與 `(userId, articleId)` unique key。
 - 決定 hidden detail/report direct access policy：404、hidden-state page，或 admin/debug bypass。
 - 在 keyset cursor 修正前，文件化 hidden + pagination 仍是 MVP risk。
 
 ### P1. Persistence baseline umbrella
 
-- status: planned
+- status: superseded by O1 / historical reference
 - backfills: `S1`、`S2`、`S3`、`S4`、`S5`、`S5-1`
-- source_gap: `docker-compose.yml` 已提供 PostgreSQL/Redis，但 API runtime 仍註冊 in-memory repositories/cache，`AiDailyDbContext` 仍是 placeholder。
-- why_now: 目前多個 slice 已可 demo，但 feed imports、bookmarks、hidden articles、AI summaries 與 AI reports 都會在 API 重啟後消失；若不先建立 persistence baseline，後續 CI/CD 與 production readiness 都缺真實資料生命週期。
+- source_gap: O1 已補上 Article、FeedSource、AiSummary、AiReport、Bookmark、HiddenArticle 的 EF mapping 與可選 PostgreSQL repositories；Redis cache/rate-limit 與正式 EF migrations 仍未完成。
+- why_now: 歷史 P1 umbrella 已由 O1 hardening roadmap 承接。後續 persistence work 應明確命名為 migrations、Redis cache/rate-limit 或 production schema evolution，不要重做 P1。
 - git_flow_classification:
   ```yaml
   base_branch: develop
@@ -1149,27 +995,24 @@ P1 是 umbrella，不適合作為單次 build-and-learn-loop 任務直接執行�
 
 ```yaml
 next_skill: build-and-learn-loop
-artifact_path: docs/slices/ai-daily-slices.md
-first_slice: S4-1. Deep report provider、SSE contract、rate limit 與 spec 偏差回補
+artifact_path: docs/slices/ai-daily-optimization-slices.md
+first_slice: O2. API Write Guard And Local-User Boundary
 prerequisite:
-  - Prompt-Ready Next Work is present and current
+  - docs/slices/ai-daily-slices.md Current Canonical Next Work points to the optimization roadmap
+  - docs/slices/ai-daily-optimization-slices.md contains O1-O6 detailed acceptance
   - worktree target repo is confirmed before branching
-why_not_s1_1:
-  - S1-1 stats API 與 Dashboard stats row 已部分完成，不應再當成從零 implementation slice。
-  - S1-1 下一步應是驗收、補測與 AI summary count source-of-truth 修正。
+why_not_legacy_order:
+  - 舊 S4-1/P1a/S3-1 Recommended Order 已被現階段 O1-O6 hardening roadmap 取代。
+  - S4-1、P1a、S3-1 仍可作為歷史 reference，但不是無上下文 agent 的預設 first slice。
 next_order:
-  - S4-1. Deep report provider、SSE contract、rate limit 與 spec 偏差回補
-  - P1a. Article/feed persistence baseline
-  - S3-1. AI quick summary state sync 與 cache correctness
-  - S2-3b. Feed relevance gate and ranking hardening
-  - S2-3a. Rejected candidate metadata decision
-  - S2-4. Source/content quality upgrade
-  - S1 follow-up. Reader list cursor hardening
-s5_handoff:
-  execution_rule: "Use the same feature branch, but run one slice per build-and-learn-loop pass; do not merge S5 and S5-1 into one implementation pass."
-  shared_branch: feature/s5-personalization
-  recommended_order:
-    - S5. 個人化、主題與收藏
-    - S5-1. 不感興趣文章隱藏與負回饋個人化
-  reason: "S5 establishes bookmark/theme and minimal user preference/auth behavior; S5-1 extends that personalization layer with negative feedback and hidden article filtering."
+  - O1. Persistence Foundation For Existing MVP State (done)
+  - O2. API Write Guard And Local-User Boundary
+  - O3. AI Report Route And Generated-Content Contract Cleanup
+  - O4. Verification Modernization
+  - O5. Frontend API And State Cleanup
+  - O6. Reader Cursor Hardening
+execution_rule:
+  - Run one slice per build-and-learn-loop pass.
+  - O1 is complete for the current MVP baseline; do not re-run it unless a future migrations or production persistence slice is explicitly requested.
+  - Do not start branch creation, staging, commit, push, PR, merge, release, or deployment without explicit confirmation.
 ```

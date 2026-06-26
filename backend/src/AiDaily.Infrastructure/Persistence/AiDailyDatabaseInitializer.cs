@@ -14,7 +14,10 @@ public static class AiDailyDatabaseInitializer
         var dbContext = scope.ServiceProvider.GetRequiredService<AiDailyDbContext>();
         await dbContext.Database.EnsureCreatedAsync(cancellationToken);
 
-        var feedSources = scope.ServiceProvider.GetRequiredService<EfCoreFeedSourceCatalog>();
-        await feedSources.SeedDefaultsAsync(cancellationToken);
+        var feedSources = scope.ServiceProvider.GetService<EfCoreFeedSourceCatalog>();
+        if (feedSources is not null)
+        {
+            await feedSources.SeedDefaultsAsync(cancellationToken);
+        }
     }
 }
