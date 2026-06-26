@@ -801,7 +801,7 @@ frontend/
 ├── .eslintrc.cjs
 ├── .prettierrc
 ├── tsconfig.json
-├── vite.config.ts
+├── vite.config.cjs
 └── package.json
 ```
 
@@ -1422,6 +1422,8 @@ User:
 | 後端 Integration Test | xUnit + WebApplicationFactory | API Controller、Repository | ≥ 60% |
 | 前端 Unit Test | Vitest | Composables、Store、Utils | ≥ 70% |
 | 前端 Component Test | Vue Test Utils | 核心元件 | ≥ 50% |
+
+目前 `backend/tests/AiDaily.UnitTests` 已接上 xUnit / VSTest runner，`dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` 會執行現有 console assertion suite。舊的 `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` 仍可作為本機 smoke runner。
 
 ### 14.2 測試命名規範
 

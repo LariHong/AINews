@@ -49,6 +49,7 @@ Status legend:
 | S4 AI deep report | partial / contract hardening | report read/generate、Gemini/Stub provider、版本化 MVP SSE contract、schema normalizer/validator、per-user/per-article rate limit 已存在 | persistence 仍是 in-memory；spec target 的 Claude provider 與 `start/chunk/field_done/done/error` SSE shape 仍是已文件化偏差 | 後端 service 與 SSE wire-level tests、前端 SSE parser tests 有覆蓋 |
 | S5 bookmarks/theme | partial / volatile MVP | bookmark mutation/list、theme preference、bookmarks/settings UI、local-user strategy 已存在 | bookmark/personalization 仍 in-memory；尚未有正式 auth；mutation error 會污染全域 article error state | 後端 service tests 與前端 store tests 有覆蓋 |
 | S5-1 hidden articles | partial / volatile MVP | Article card/report actions 可 hide/restore；一般列表依 local-user hidden preference 排除；提供 undo/settings restore | hidden state 仍 in-memory；detail/report direct access policy 未定；pagination 仍可能因 offset cursor 漏/重複 | 後端 service tests 與前端 store tests 有覆蓋 |
+| M1 Verification infrastructure baseline | done | 前端 Vite config 改為 `vite.config.cjs` 並將 Vite/Vitest cache 導到 `.tmp/vite-cache`；後端 `AiDaily.UnitTests` 接上 xUnit / VSTest runner，`dotnet test` 會執行既有 console assertion suite | Vite CJS Node API 有 deprecation warning；後端目前只有一個 xUnit wrapper fact，尚未拆成多個獨立 test cases | `npm.cmd run test`、`npm.cmd run build`、`dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`dotnet build backend/AiDaily.sln` 已驗證 |
 
 ## Current Contract Deviations
 
@@ -58,6 +59,43 @@ Status legend:
 - Rate limit/auth: spec 有 AI/API rate limit 與驗證要求；S4-1 只處理 AI generate rate limit/auth guard。Feed crawl POST guard 屬於獨立 API write guard follow-up，不放進 S4-1。
 - Pagination: 文件稱 cursor pagination；目前 cursor 是 base64 offset index，不是 `(publishedAt, ingestionScore, id)` 類 keyset cursor。
 - Feed rejected metadata: policy 期望保留 rejected metadata；目前 crawler 對 rejected candidates 只 log 後略過。
+
+## Completed Maintenance Slices
+
+### M1. Verification infrastructure baseline
+
+- git_flow_classification:
+  ```yaml
+  base_branch: main
+  branch_type: feature
+  suggested_branch_name: feature/verification-infrastructure-baseline
+  reason: "Normalizes local project verification across frontend Vite/Vitest and backend dotnet test; this is verification infrastructure feature branch for the project workflow, not a production hotfix."
+  ```
+- changed_files:
+  - `.gitignore`
+  - `README.md`
+  - `AI-Daily-Spec.md`
+  - `docs/slices/ai-daily-slices.md`
+  - `frontend/vite.config.cjs`
+  - `frontend/vite.config.ts` removed
+  - `backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`
+  - `backend/tests/AiDaily.UnitTests/Program.cs`
+- acceptance:
+  - 前端 test/build 在 Windows PowerShell 可用 `npm.cmd` 驗證。
+  - Vite/Vitest cache 不寫入 `node_modules/.vite` 或 config 同目錄 timestamp 檔，避免本機權限問題阻擋驗證。
+  - `.tmp/` 不進版本控制。
+  - `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` runs the existing backend assertion suite.
+  - `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` remains available as a local smoke runner.
+  - README and spec point to `dotnet test` as the normal backend verification command.
+- not_included:
+  - 不把現有 suite 拆成多個獨立 xUnit test cases。
+  - 不新增產品測試案例、不改業務邏輯、不處理 auth/write guard、persistence baseline、AI cache correctness 或 CI/CD。
+- validation_commands:
+  - npm.cmd run test
+  - npm.cmd run build
+  - dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+  - dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+  - dotnet build backend/AiDaily.sln
 
 ## Prompt-Ready Next Work
 
@@ -100,7 +138,7 @@ Status legend:
 - 補後端 HTTP/SSE integration tests，以及前端 SSE parser 或 composable tests。
 
 validation_commands:
-- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
 - npm test
 - npm run build
 
@@ -129,7 +167,7 @@ validation_commands:
 - 補 article/feed repository persistence tests 或 lightweight integration tests。
 
 validation_commands:
-- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
 - dotnet build backend/AiDaily.sln
 
 如果 build 因既有 obj/bin 檔案鎖定失敗，必須回報鎖定錯誤與未完成的驗證，不要清除檔案或 reset。
@@ -155,7 +193,7 @@ validation_commands:
 - 補 AiSummaryPanel/store/service tests，覆蓋 empty、generate、error、refresh。
 
 validation_commands:
-- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
 - npm test
 
 如果 npm 指令在本機工具層無法執行，必須回報未驗證前端。
@@ -183,7 +221,7 @@ validation_commands:
 - 保留既有 rejected article 排除、candidateLimit 掃描、accepted article ingestion metadata 測試。
 
 validation_commands:
-- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
 ```
 
 #### 5. S2-3a rejected metadata decision
@@ -205,7 +243,7 @@ validation_commands:
 - 一般 reader feed 仍排除 rejected articles。
 
 validation_commands:
-- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
 ```
 
 #### 6. S2-4 source/content quality upgrade
@@ -230,7 +268,7 @@ validation_commands:
 - 保留 S2-3b relevance/ranking 測試、S2-3a rejected deferral 文件語意、既有 content extraction fallback 測試。
 
 validation_commands:
-- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
 
 如果 build 因本機 API/Visual Studio 鎖定 bin 檔失敗，可改用隔離 output，例如加上 `--property:BaseOutputPath=<repo>/.tmp/s2-4-test-output/`，並在完成後清理 `.tmp`。
 ```
@@ -257,7 +295,7 @@ prerequisite:
 - 若 ingestionScore 尚未持久化，仍可使用目前查詢可取得的 stable ordering 欄位；不要因此擴大到 persistence baseline。
 
 validation_commands:
-- dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
+- dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj
 - npm test
 ```
 
@@ -280,13 +318,13 @@ validation_commands:
 
 | Area | 主要證據 | 最窄驗證 |
 | --- | --- | --- |
-| S4-1 report contract | `backend/src/AiDaily.Application/AiSummaries`、`backend/src/AiDaily.Infrastructure/AI`、`frontend/src/composables/useAiReportStream.ts` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
-| P1a article/feed persistence | `backend/src/AiDaily.Infrastructure/Persistence`、`backend/src/AiDaily.Infrastructure/Repositories`、`backend/src/AiDaily.Domain/Entities` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`dotnet build backend/AiDaily.sln` |
-| S3-1 summary state sync | `backend/src/AiDaily.Application/AiSummaries`、`frontend/src/components/ai/AiSummaryPanel.vue`、`frontend/src/stores/aiSummaryStore.ts` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
-| S2-3b feed relevance/ranking | `backend/src/AiDaily.Infrastructure/FeedCrawler/FeedArticleQualityFilter.cs`、`backend/src/AiDaily.Application/Articles/ArticleQueryService.cs`、`backend/tests/AiDaily.UnitTests` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
-| S2-3a rejected metadata | `backend/src/AiDaily.Infrastructure/FeedCrawler`、`docs/feed-source-policy.md` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
-| S2-4 source/content quality | `backend/src/AiDaily.Infrastructure/FeedCrawler/SeedFeedSources.cs`、`backend/src/AiDaily.Infrastructure/FeedCrawler/FeedArticleQualityFilter.cs`、`backend/src/AiDaily.Infrastructure/ContentExtraction`、`backend/src/AiDaily.Infrastructure/AI`、`backend/tests/AiDaily.UnitTests` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
-| S1 cursor hardening | `backend/src/AiDaily.Application/Articles`、`frontend/src/stores/articleStore.ts` | `dotnet run --project backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
+| S4-1 report contract | `backend/src/AiDaily.Application/AiSummaries`、`backend/src/AiDaily.Infrastructure/AI`、`frontend/src/composables/useAiReportStream.ts` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
+| P1a article/feed persistence | `backend/src/AiDaily.Infrastructure/Persistence`、`backend/src/AiDaily.Infrastructure/Repositories`、`backend/src/AiDaily.Domain/Entities` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`dotnet build backend/AiDaily.sln` |
+| S3-1 summary state sync | `backend/src/AiDaily.Application/AiSummaries`、`frontend/src/components/ai/AiSummaryPanel.vue`、`frontend/src/stores/aiSummaryStore.ts` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
+| S2-3b feed relevance/ranking | `backend/src/AiDaily.Infrastructure/FeedCrawler/FeedArticleQualityFilter.cs`、`backend/src/AiDaily.Application/Articles/ArticleQueryService.cs`、`backend/tests/AiDaily.UnitTests` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
+| S2-3a rejected metadata | `backend/src/AiDaily.Infrastructure/FeedCrawler`、`docs/feed-source-policy.md` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
+| S2-4 source/content quality | `backend/src/AiDaily.Infrastructure/FeedCrawler/SeedFeedSources.cs`、`backend/src/AiDaily.Infrastructure/FeedCrawler/FeedArticleQualityFilter.cs`、`backend/src/AiDaily.Infrastructure/ContentExtraction`、`backend/src/AiDaily.Infrastructure/AI`、`backend/tests/AiDaily.UnitTests` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj` |
+| S1 cursor hardening | `backend/src/AiDaily.Application/Articles`、`frontend/src/stores/articleStore.ts` | `dotnet test backend/tests/AiDaily.UnitTests/AiDaily.UnitTests.csproj`、`npm test` |
 
 ## 切片
 
