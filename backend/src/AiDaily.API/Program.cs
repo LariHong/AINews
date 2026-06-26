@@ -33,12 +33,26 @@ builder.Services.Configure<AiProviderOptions>(options =>
 builder.Services.AddSingleton(serviceProvider =>
     serviceProvider.GetRequiredService<IOptions<AiProviderOptions>>().Value);
 var articleRepositoryMode = builder.Configuration["Persistence:ArticleRepository"] ?? "InMemory";
-if (UsesDatabaseArticleRepository(articleRepositoryMode))
+var aiSummaryRepositoryMode = builder.Configuration["Persistence:AiSummaryRepository"] ?? "InMemory";
+var aiReportRepositoryMode = builder.Configuration["Persistence:AiReportRepository"] ?? "InMemory";
+var bookmarkRepositoryMode = builder.Configuration["Persistence:BookmarkRepository"] ?? "InMemory";
+var hiddenArticleRepositoryMode = builder.Configuration["Persistence:HiddenArticleRepository"] ?? "InMemory";
+var usesDatabase = UsesDatabaseRepository(articleRepositoryMode) ||
+    UsesDatabaseRepository(aiSummaryRepositoryMode) ||
+    UsesDatabaseRepository(aiReportRepositoryMode) ||
+    UsesDatabaseRepository(bookmarkRepositoryMode) ||
+    UsesDatabaseRepository(hiddenArticleRepositoryMode);
+
+if (usesDatabase)
 {
     var connectionString = builder.Configuration.GetConnectionString("AiDaily")
         ?? "Host=localhost;Port=5432;Database=ai_daily;Username=postgres;Password=postgres";
 
     builder.Services.AddDbContext<AiDailyDbContext>(options => options.UseNpgsql(connectionString));
+}
+
+if (UsesDatabaseRepository(articleRepositoryMode))
+{
     builder.Services.AddScoped<IArticleRepository, EfCoreArticleRepository>();
     builder.Services.AddScoped<EfCoreFeedSourceCatalog>();
     builder.Services.AddScoped<IFeedSourceCatalog>(serviceProvider =>
@@ -52,17 +66,49 @@ else
     builder.Services.AddSingleton<IFeedSourceCatalog, SeedFeedSourceCatalog>();
 }
 
-builder.Services.AddSingleton<IBookmarkRepository, InMemoryBookmarkRepository>();
-builder.Services.AddSingleton<IHiddenArticleRepository, InMemoryHiddenArticleRepository>();
+if (UsesDatabaseRepository(bookmarkRepositoryMode))
+{
+    builder.Services.AddScoped<IBookmarkRepository, EfCoreBookmarkRepository>();
+}
+else
+{
+    builder.Services.AddSingleton<IBookmarkRepository, InMemoryBookmarkRepository>();
+}
+
+if (UsesDatabaseRepository(hiddenArticleRepositoryMode))
+{
+    builder.Services.AddScoped<IHiddenArticleRepository, EfCoreHiddenArticleRepository>();
+}
+else
+{
+    builder.Services.AddSingleton<IHiddenArticleRepository, InMemoryHiddenArticleRepository>();
+}
+
 builder.Services.AddSingleton<FeedCrawlRunState>();
 builder.Services.AddSingleton<IFeedCrawlStatusReader>(serviceProvider =>
     serviceProvider.GetRequiredService<FeedCrawlRunState>());
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<IAiSummaryRepository, InMemoryAiSummaryRepository>();
+if (UsesDatabaseRepository(aiSummaryRepositoryMode))
+{
+    builder.Services.AddScoped<IAiSummaryRepository, EfCoreAiSummaryRepository>();
+}
+else
+{
+    builder.Services.AddSingleton<IAiSummaryRepository, InMemoryAiSummaryRepository>();
+}
+
 builder.Services.AddSingleton<IAiSummaryGenerationTracker, InMemoryAiSummaryGenerationTracker>();
 builder.Services.AddSingleton<IAiSummaryReadCache, InMemoryAiSummaryReadCache>();
 builder.Services.AddScoped<IAiSummaryGenerator, StubAiSummaryGenerator>();
-builder.Services.AddSingleton<IAiReportRepository, InMemoryAiReportRepository>();
+if (UsesDatabaseRepository(aiReportRepositoryMode))
+{
+    builder.Services.AddScoped<IAiReportRepository, EfCoreAiReportRepository>();
+}
+else
+{
+    builder.Services.AddSingleton<IAiReportRepository, InMemoryAiReportRepository>();
+}
+
 builder.Services.AddSingleton<IAiReportGenerationTracker, InMemoryAiReportGenerationTracker>();
 builder.Services.AddSingleton<IAiReportRateLimiter, InMemoryAiReportRateLimiter>();
 builder.Services.AddScoped<ArticleQueryService>();
@@ -88,7 +134,7 @@ builder.Services.AddScoped<IAiReportGenerator>(serviceProvider =>
 
 var app = builder.Build();
 
-if (UsesDatabaseArticleRepository(articleRepositoryMode))
+if (usesDatabase)
 {
     await AiDailyDatabaseInitializer.InitializeAsync(app.Services);
 }
@@ -104,7 +150,7 @@ static string? NormalizeApiKey(string? apiKey) =>
         ? null
         : apiKey;
 
-static bool UsesDatabaseArticleRepository(string mode) =>
+static bool UsesDatabaseRepository(string mode) =>
     string.Equals(mode, "Db", StringComparison.OrdinalIgnoreCase) ||
     string.Equals(mode, "Database", StringComparison.OrdinalIgnoreCase) ||
     string.Equals(mode, "Postgres", StringComparison.OrdinalIgnoreCase) ||

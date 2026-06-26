@@ -67,19 +67,19 @@ AI Daily 是一套 AI 新聞聚合與深度分析平台，每日自動抓取多�
 
 ### 1.5 目前實作狀態
 
-本文件描述的是 AI Daily 的目標產品規格；目前 repo 已從初始骨架推進到多個可 demo 的 MVP flows，但多數寫入狀態仍是 in-memory，尚未達到 production-ready persistence、auth/rate limit 與 wire-contract 穩定度。
+本文件描述的是 AI Daily 的目標產品規格；目前 repo 已從初始骨架推進到多個可 demo 的 MVP flows，且既有 MVP state 可透過設定切換到 PostgreSQL；預設仍偏本機 in-memory，尚未達到 production-ready auth/rate limit、Redis cache 與 wire-contract 穩定度。
 
 | 範圍 | 狀態 | 說明 |
 |------|------|------|
 | Dashboard UI | partial / MVP done | `dashboard.html` 已轉入 `frontend/src/views/Dashboard.vue` 與 `frontend/src/styles.css`，包含 feed、stats、quick summary、bookmarks/topic/source panels |
 | Report UI | partial / MVP done | `report.html` 已轉入 `frontend/src/views/Report.vue`，路由為 `/report/:id`，並可顯示 source content status 與 AI report state |
-| 文章列表 API | partial / volatile MVP | 目前提供 `GET /api/v1/articles`，支援列表查詢與前端串接；資料仍主要來自 in-memory repository，cursor 仍是 offset MVP |
+| 文章列表 API | partial / persistence-capable MVP | 目前提供 `GET /api/v1/articles`，支援列表查詢與前端串接；Article/FeedSource 可用 PostgreSQL repository，cursor 仍是 offset MVP |
 | Dashboard stats API | partial | 已有 `GET /api/v1/stats/today` 與 Dashboard stats row；AI summarized count 仍依賴 article projection，生成 summary 後可能不同步 |
-| 資料來源 / RSS 匯入 | partial / volatile MVP | 已有 explicit feed crawl run、RSS crawler、content extraction 與 cold-start sync UX；尚未有 PostgreSQL persistence、排程、feed-source admin 或 rejected candidate audit store |
-| AI quick summary | partial / volatile MVP | 已有 read/generate/cache flow、provider metadata 與 promptVersion；summary repository/cache 仍為 in-memory，缺並行防重與 provider error contract |
+| 資料來源 / RSS 匯入 | partial / persistence-capable MVP | 已有 explicit feed crawl run、RSS crawler、content extraction、cold-start sync UX 與 Article/FeedSource PostgreSQL repository；尚未有排程、feed-source admin 或 rejected candidate audit store |
+| AI quick summary | partial / persistence-capable MVP | 已有 read/generate/cache flow、provider metadata 與 promptVersion；summary repository 可切 PostgreSQL，read cache / generation tracker 仍為 in-memory |
 | AI deep report | partial / contract risk | 已有 read/generate、Gemini/Stub provider、MVP SSE stream、normalizer/validator；SSE event shape 與本 spec 尚未對齊，缺 rate limit、prompt length limit 與 HTTP/SSE integration tests |
-| 書籤 / 個人化 | partial / volatile MVP | 已有 bookmark mutation/list、theme preference、local-user strategy、hidden article hide/restore；尚未有正式 auth，bookmark/hidden state 仍為 in-memory |
-| Persistence / cache infrastructure | planned | `docker-compose.yml` 已提供 PostgreSQL/Redis，但 API runtime 仍註冊 in-memory repositories/cache；`AiDailyDbContext` 仍是 placeholder |
+| 書籤 / 個人化 | partial / persistence-capable MVP | 已有 bookmark mutation/list、theme preference、local-user strategy、hidden article hide/restore；bookmark/hidden state 可切 PostgreSQL，尚未有正式 auth |
+| Persistence / cache infrastructure | partial / O1 done | `AiDailyDbContext` 已 mapping Article、FeedSource、AiSummary、AiReport、Bookmark、HiddenArticle；runtime 可逐項選擇 PostgreSQL repository 或 in-memory fallback。Redis cache/rate-limit 與正式 EF migrations 尚未完成 |
 
 目前文件中的正式目標仍保留，例如 PostgreSQL、Redis、JWT、rate limiting、Claude provider 與 production deployment；若實作與目標不同，切片文件需以 `Current Contract Deviations` 標註目前 MVP 偏差與修正 owner。
 

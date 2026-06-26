@@ -17,11 +17,19 @@ public sealed class AiDailyDbContext : DbContext
 
     public DbSet<Article> Articles => Set<Article>();
     public DbSet<FeedSource> FeedSources => Set<FeedSource>();
+    public DbSet<AiSummary> AiSummaries => Set<AiSummary>();
+    public DbSet<AiReport> AiReports => Set<AiReport>();
+    public DbSet<Bookmark> Bookmarks => Set<Bookmark>();
+    public DbSet<HiddenArticle> HiddenArticles => Set<HiddenArticle>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ConfigureArticles(modelBuilder);
         ConfigureFeedSources(modelBuilder);
+        ConfigureAiSummaries(modelBuilder);
+        ConfigureAiReports(modelBuilder);
+        ConfigureBookmarks(modelBuilder);
+        ConfigureHiddenArticles(modelBuilder);
     }
 
     private static void ConfigureArticles(ModelBuilder modelBuilder)
@@ -86,6 +94,108 @@ public sealed class AiDailyDbContext : DbContext
         });
     }
 
+    private static void ConfigureAiSummaries(ModelBuilder modelBuilder)
+    {
+        var listConverter = CreateStringListConverter();
+        var listComparer = CreateStringListComparer();
+
+        modelBuilder.Entity<AiSummary>(entity =>
+        {
+            entity.ToTable("ai_summaries");
+            entity.HasKey(summary => summary.Id);
+            entity.HasIndex(summary => summary.ArticleId).IsUnique();
+
+            entity.Property(summary => summary.Id).HasColumnName("id").HasMaxLength(120);
+            entity.Property(summary => summary.ArticleId).HasColumnName("article_id").HasMaxLength(80).IsRequired();
+            entity.Property(summary => summary.Highlights)
+                .HasColumnName("highlights")
+                .HasConversion(listConverter)
+                .Metadata.SetValueComparer(listComparer);
+            entity.Property(summary => summary.ImpactScope).HasColumnName("impact_scope").IsRequired();
+            entity.Property(summary => summary.Controversy).HasColumnName("controversy").IsRequired();
+            entity.Property(summary => summary.EditorView).HasColumnName("editor_view").IsRequired();
+            entity.Property(summary => summary.Provider).HasColumnName("provider").HasMaxLength(80).IsRequired();
+            entity.Property(summary => summary.PromptVersion).HasColumnName("prompt_version").HasMaxLength(120).IsRequired();
+            entity.Property(summary => summary.GeneratedAt).HasColumnName("generated_at");
+        });
+    }
+
+    private static void ConfigureAiReports(ModelBuilder modelBuilder)
+    {
+        var stringListConverter = CreateStringListConverter();
+        var stringListComparer = CreateStringListComparer();
+        var timelineConverter = CreateJsonConverter<IReadOnlyList<AiReportTimelineItem>>();
+        var timelineComparer = CreateJsonComparer<IReadOnlyList<AiReportTimelineItem>>();
+        var scoresConverter = CreateJsonConverter<AiReportScores>();
+        var scoresComparer = CreateJsonComparer<AiReportScores>();
+
+        modelBuilder.Entity<AiReport>(entity =>
+        {
+            entity.ToTable("ai_reports");
+            entity.HasKey(report => report.Id);
+            entity.HasIndex(report => report.ArticleId).IsUnique();
+
+            entity.Property(report => report.Id).HasColumnName("id").HasMaxLength(120);
+            entity.Property(report => report.ArticleId).HasColumnName("article_id").HasMaxLength(80).IsRequired();
+            entity.Property(report => report.Tldr).HasColumnName("tldr").IsRequired();
+            entity.Property(report => report.KeyPoints)
+                .HasColumnName("key_points")
+                .HasConversion(stringListConverter)
+                .Metadata.SetValueComparer(stringListComparer);
+            entity.Property(report => report.Pros)
+                .HasColumnName("pros")
+                .HasConversion(stringListConverter)
+                .Metadata.SetValueComparer(stringListComparer);
+            entity.Property(report => report.Cons)
+                .HasColumnName("cons")
+                .HasConversion(stringListConverter)
+                .Metadata.SetValueComparer(stringListComparer);
+            entity.Property(report => report.Timeline)
+                .HasColumnName("timeline")
+                .HasConversion(timelineConverter)
+                .Metadata.SetValueComparer(timelineComparer);
+            entity.Property(report => report.Scores)
+                .HasColumnName("scores")
+                .HasConversion(scoresConverter)
+                .Metadata.SetValueComparer(scoresComparer);
+            entity.Property(report => report.RelatedTags)
+                .HasColumnName("related_tags")
+                .HasConversion(stringListConverter)
+                .Metadata.SetValueComparer(stringListComparer);
+            entity.Property(report => report.EditorNote).HasColumnName("editor_note").IsRequired();
+            entity.Property(report => report.Rating).HasColumnName("rating").HasMaxLength(80).IsRequired();
+            entity.Property(report => report.Provider).HasColumnName("provider").HasMaxLength(80).IsRequired();
+            entity.Property(report => report.GeneratedAt).HasColumnName("generated_at");
+        });
+    }
+
+    private static void ConfigureBookmarks(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Bookmark>(entity =>
+        {
+            entity.ToTable("bookmarks");
+            entity.HasKey(bookmark => new { bookmark.UserId, bookmark.ArticleId });
+
+            entity.Property(bookmark => bookmark.UserId).HasColumnName("user_id").HasMaxLength(120);
+            entity.Property(bookmark => bookmark.ArticleId).HasColumnName("article_id").HasMaxLength(80);
+            entity.Property(bookmark => bookmark.CreatedAt).HasColumnName("created_at");
+        });
+    }
+
+    private static void ConfigureHiddenArticles(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<HiddenArticle>(entity =>
+        {
+            entity.ToTable("hidden_articles");
+            entity.HasKey(hiddenArticle => new { hiddenArticle.UserId, hiddenArticle.ArticleId });
+
+            entity.Property(hiddenArticle => hiddenArticle.UserId).HasColumnName("user_id").HasMaxLength(120);
+            entity.Property(hiddenArticle => hiddenArticle.ArticleId).HasColumnName("article_id").HasMaxLength(80);
+            entity.Property(hiddenArticle => hiddenArticle.Reason).HasColumnName("reason").HasMaxLength(120);
+            entity.Property(hiddenArticle => hiddenArticle.CreatedAt).HasColumnName("created_at");
+        });
+    }
+
     private static ValueConverter<IReadOnlyList<string>, string> CreateStringListConverter() =>
         new(
             value => JsonSerializer.Serialize(value, JsonOptions),
@@ -96,4 +206,15 @@ public sealed class AiDailyDbContext : DbContext
             (left, right) => left != null && right != null && left.SequenceEqual(right),
             value => value.Aggregate(0, (hash, item) => HashCode.Combine(hash, item.GetHashCode(StringComparison.Ordinal))),
             value => value.ToArray());
+
+    private static ValueConverter<T, string> CreateJsonConverter<T>() =>
+        new(
+            value => JsonSerializer.Serialize(value, JsonOptions),
+            value => JsonSerializer.Deserialize<T>(value, JsonOptions)!);
+
+    private static ValueComparer<T> CreateJsonComparer<T>() =>
+        new(
+            (left, right) => JsonSerializer.Serialize(left, JsonOptions) == JsonSerializer.Serialize(right, JsonOptions),
+            value => JsonSerializer.Serialize(value, JsonOptions).GetHashCode(StringComparison.Ordinal),
+            value => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value, JsonOptions), JsonOptions)!);
 }

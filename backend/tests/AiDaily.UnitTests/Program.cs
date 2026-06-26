@@ -53,6 +53,7 @@ internal static class AiDailyUnitTestRunner
         await ShouldCrawlRssIntoArticles();
         await ShouldPersistArticlesAcrossDbContextRestart();
         await ShouldPersistFeedMetadataAcrossDbContextRestart();
+        await ShouldPersistMvpStateAcrossDbContextRestart();
         await ShouldSyncSeedFeedSourcesIntoExistingCatalog();
         await ShouldScanBeyondFirstTenLowValueCandidates();
         await ShouldRejectCandidateWhenOnlySourceMetadataContainsAi();
@@ -390,6 +391,118 @@ internal static class AiDailyUnitTestRunner
                 Assert(source.FeedUrl == "https://example.com/rss.xml", "DB feed catalog should persist feed URL metadata");
                 Assert(source.LastCrawledAt == crawledAt, "DB feed catalog should persist last crawled timestamp");
                 Assert(source.SourceQualityTier == "core", "DB feed catalog should persist source quality tier");
+            }
+        }
+
+        async Task ShouldPersistMvpStateAcrossDbContextRestart()
+        {
+            await using var connection = new SqliteConnection("DataSource=:memory:");
+            await connection.OpenAsync();
+            var options = new DbContextOptionsBuilder<AiDailyDbContext>()
+                .UseSqlite(connection)
+                .Options;
+
+            await using (var dbContext = new AiDailyDbContext(options))
+            {
+                await dbContext.Database.EnsureCreatedAsync();
+                var summaryRepository = new EfCoreAiSummaryRepository(dbContext);
+                var reportRepository = new EfCoreAiReportRepository(dbContext);
+                var bookmarkRepository = new EfCoreBookmarkRepository(dbContext);
+                var hiddenArticleRepository = new EfCoreHiddenArticleRepository(dbContext);
+
+                await summaryRepository.SaveAsync(new AiSummary
+                {
+                    Id = "sum_persist_1",
+                    ArticleId = "article_persist_1",
+                    Highlights = ["State survives restart", "Summary upsert is article-scoped"],
+                    ImpactScope = "Persistence foundation",
+                    Controversy = "Transitional schema creation still needs migrations later.",
+                    EditorView = "Good enough for the O1 MVP baseline.",
+                    Provider = "stub",
+                    PromptVersion = "test-v1",
+                    GeneratedAt = DateTimeOffset.Parse("2026-05-14T08:00:00Z")
+                }, CancellationToken.None);
+                await summaryRepository.SaveAsync(new AiSummary
+                {
+                    Id = "sum_persist_2",
+                    ArticleId = "article_persist_1",
+                    Highlights = ["Replacement survives restart"],
+                    ImpactScope = "Updated persistence foundation",
+                    Controversy = "Unique article summary upsert should avoid duplicates.",
+                    EditorView = "Latest summary wins.",
+                    Provider = "stub",
+                    PromptVersion = "test-v2",
+                    GeneratedAt = DateTimeOffset.Parse("2026-05-14T08:05:00Z")
+                }, CancellationToken.None);
+                await reportRepository.SaveAsync(new AiReport
+                {
+                    Id = "report_persist_1",
+                    ArticleId = "article_persist_1",
+                    Tldr = "Report survives restart.",
+                    KeyPoints = ["Point A", "Point B"],
+                    Pros = ["Durable"],
+                    Cons = ["Still local schema creation"],
+                    Timeline = [new AiReportTimelineItem("Now", "O1 persists reports.")],
+                    Scores = new AiReportScores(80, 70, 20),
+                    RelatedTags = ["persistence"],
+                    EditorNote = "Report state is now repository-backed.",
+                    Rating = "watch",
+                    Provider = "stub",
+                    GeneratedAt = DateTimeOffset.Parse("2026-05-14T08:10:00Z")
+                }, CancellationToken.None);
+                await bookmarkRepository.SaveAsync(new Bookmark
+                {
+                    UserId = "local_user_1",
+                    ArticleId = "article_persist_1",
+                    CreatedAt = DateTimeOffset.Parse("2026-05-14T08:15:00Z")
+                }, CancellationToken.None);
+                await bookmarkRepository.SaveAsync(new Bookmark
+                {
+                    UserId = "local_user_1",
+                    ArticleId = "article_persist_1",
+                    CreatedAt = DateTimeOffset.Parse("2026-05-14T08:16:00Z")
+                }, CancellationToken.None);
+                await hiddenArticleRepository.SaveAsync(new HiddenArticle
+                {
+                    UserId = "local_user_1",
+                    ArticleId = "article_persist_2",
+                    Reason = "not_interested",
+                    CreatedAt = DateTimeOffset.Parse("2026-05-14T08:20:00Z")
+                }, CancellationToken.None);
+            }
+
+            await using (var restartedContext = new AiDailyDbContext(options))
+            {
+                var summaryArticleIndex = restartedContext.Model.FindEntityType(typeof(AiSummary))
+                    ?.GetIndexes()
+                    .FirstOrDefault(index => index.Properties.Any(property => property.Name == nameof(AiSummary.ArticleId)));
+                var reportArticleIndex = restartedContext.Model.FindEntityType(typeof(AiReport))
+                    ?.GetIndexes()
+                    .FirstOrDefault(index => index.Properties.Any(property => property.Name == nameof(AiReport.ArticleId)));
+                var bookmarkKey = restartedContext.Model.FindEntityType(typeof(Bookmark))?.FindPrimaryKey();
+                var hiddenKey = restartedContext.Model.FindEntityType(typeof(HiddenArticle))?.FindPrimaryKey();
+                var summaryRepository = new EfCoreAiSummaryRepository(restartedContext);
+                var reportRepository = new EfCoreAiReportRepository(restartedContext);
+                var bookmarkRepository = new EfCoreBookmarkRepository(restartedContext);
+                var hiddenArticleRepository = new EfCoreHiddenArticleRepository(restartedContext);
+
+                var summary = await summaryRepository.GetByArticleIdAsync("article_persist_1", CancellationToken.None);
+                var report = await reportRepository.GetByArticleIdAsync("article_persist_1", CancellationToken.None);
+                var bookmarkedArticleIds = await bookmarkRepository.ListArticleIdsAsync("local_user_1", CancellationToken.None);
+                var hiddenArticleIds = await hiddenArticleRepository.ListArticleIdsAsync("local_user_1", CancellationToken.None);
+
+                Assert(summaryArticleIndex?.IsUnique == true, "AiSummary.ArticleId should have a unique EF index");
+                Assert(reportArticleIndex?.IsUnique == true, "AiReport.ArticleId should have a unique EF index");
+                Assert(bookmarkKey?.Properties.Select(property => property.Name).SequenceEqual([nameof(Bookmark.UserId), nameof(Bookmark.ArticleId)]) == true, "Bookmark should be unique per user/article");
+                Assert(hiddenKey?.Properties.Select(property => property.Name).SequenceEqual([nameof(HiddenArticle.UserId), nameof(HiddenArticle.ArticleId)]) == true, "HiddenArticle should be unique per user/article");
+                Assert(summary is not null, "DB summary repository should find the persisted summary after restart");
+                Assert(report is not null, "DB report repository should find the persisted report after restart");
+                Assert(summary?.Id == "sum_persist_2", "DB summary repository should upsert one summary per article");
+                Assert(summary!.Highlights.SequenceEqual(["Replacement survives restart"]), "DB summary repository should persist highlights");
+                Assert(report?.Timeline.Single().Label == "Now", "DB report repository should persist timeline items");
+                Assert(report!.Scores.Impact == 80, "DB report repository should persist score values");
+                Assert(bookmarkedArticleIds.SetEquals(["article_persist_1"]), "DB bookmark repository should persist one bookmark per user/article");
+                Assert(hiddenArticleIds.SetEquals(["article_persist_2"]), "DB hidden article repository should persist hidden preferences");
             }
         }
 
