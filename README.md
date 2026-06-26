@@ -130,6 +130,8 @@ npm run build
 npm run test
 ```
 
+Windows PowerShell 若因執行原則擋下 `npm.ps1`，可改用 `npm.cmd run dev`、`npm.cmd run build` 與 `npm.cmd run test`。
+
 ### 後端
 
 ```powershell

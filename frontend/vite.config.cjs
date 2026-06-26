@@ -1,18 +1,19 @@
-import { fileURLToPath, URL } from 'node:url'
+const path = require('node:path')
 
-import vue from '@vitejs/plugin-vue'
-import { defineConfig, loadEnv } from 'vite'
+const vue = require('@vitejs/plugin-vue')
+const { loadEnv } = require('vite')
 
-export default defineConfig(({ mode }) => {
+module.exports = ({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:12718'
   const devServerPort = Number(env.VITE_DEV_SERVER_PORT || 5176)
 
   return {
+    cacheDir: path.resolve(__dirname, '../.tmp/vite-cache'),
     plugins: [vue()],
     resolve: {
       alias: {
-        '@': fileURLToPath(new URL('./src', import.meta.url)),
+        '@': path.resolve(__dirname, 'src'),
       },
     },
     server: {
@@ -25,4 +26,4 @@ export default defineConfig(({ mode }) => {
       },
     },
   }
-})
+}
